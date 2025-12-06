@@ -11,7 +11,8 @@ const router = Router();
 const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY!;
 const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET!;
 const SCOPES = process.env.SHOPIFY_SCOPES || 'read_customers,read_orders';
-const HOST = process.env.HOST!; // e.g. https://abcd1234.ngrok.io
+const HOST = process.env.HOST!;
+const INTERNAL_API = process.env.INTERNAL_API || 'http://localhost:4000';
 
 if (!SHOPIFY_API_KEY || !SHOPIFY_API_SECRET || !HOST) {
   console.warn('Missing Shopify env variables. Make sure SHOPIFY_API_KEY, SHOPIFY_API_SECRET, and HOST are set.');
@@ -131,7 +132,7 @@ async function createShopifyWebhooks(shop: string, accessToken: string) {
 }
 
 /**
- * Webhook receiver - verify HMAC and handle events
+ * Webhook receiver - verify HMAC and forward to internal ingestion endpoints.
  * POST /shopify/webhook
  */
 router.post('/webhook', async (req: Request, res: Response) => {
@@ -141,7 +142,6 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
   const rawBody = (req as any).rawBody as Buffer | undefined;
   if (!rawBody) {
-    // rawBody must be preserved in app middleware (see note below)
     console.error('Missing rawBody — ensure raw body is captured for webhook verification.');
     return res.status(400).send('raw body required for verification');
   }
@@ -149,7 +149,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
   // verify HMAC
   const hmac = crypto.createHmac('sha256', SHOPIFY_API_SECRET!).update(rawBody).digest('base64');
   if (hmac !== hmacHeader) {
-    console.warn('Warning: webhook HMAC verification failed');
+    console.warn('Webhook HMAC verification failed', { expected: hmac, got: hmacHeader });
     return res.status(401).send('HMAC validation failed');
   }
 
@@ -169,80 +169,71 @@ router.post('/webhook', async (req: Request, res: Response) => {
     return res.status(404).send('unknown shop');
   }
 
-  // Map Shopify payloads to our local models and insert via Prisma
+  // Helper: forward to internal endpoint with tenant apiKey, with simple retries
+  async function forward(urlPath: string, body: any) {
+    const maxTries = 3;
+    let lastErr: any = null;
+    for (let attempt = 1; attempt <= maxTries; attempt++) {
+      try {
+        const url = `${INTERNAL_API}${urlPath}`;
+        await axios.post(url, body, {
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': tenant.apiKey,
+          },
+          timeout: 5000,
+        });
+        return { ok: true };
+      } catch (err: any) {
+        lastErr = err;
+        console.warn(`Forward attempt ${attempt} failed for ${urlPath}`, err?.response?.data || err.message);
+        // small delay
+        await new Promise((r) => setTimeout(r, 200 * attempt));
+      }
+    }
+    return { ok: false, err: lastErr };
+  }
+
   try {
     if (topic === 'orders/create') {
-      // Example: map order
       const extId = String(payload.id);
-      const total = Number(payload.total_price || payload.total_price);
+      const total = Number(payload.total_price ?? payload.total_price);
       const customerShopId = payload.customer?.id ? String(payload.customer.id) : undefined;
 
-      // ensure customer exists (upsert by externalId)
-      let customerRecord = undefined;
-      if (customerShopId) {
-        const existing = await prisma.customer.findFirst({
-          where: { tenantId: tenant.id, externalId: customerShopId },
-        });
-        if (!existing) {
-          customerRecord = await prisma.customer.create({
-            data: {
-              tenantId: tenant.id,
-              externalId: customerShopId,
-              email: payload.customer?.email,
-              firstName: payload.customer?.first_name,
-              lastName: payload.customer?.last_name,
-              totalSpent: 0,
-            },
-          });
-        } else customerRecord = existing;
-      }
+      // map payload to our internal /api/data/orders body
+      const body = {
+        externalId: extId,
+        customerExternalId: customerShopId,
+        totalPrice: total,
+      };
 
-      const order = await prisma.order.create({
-        data: {
-          tenantId: tenant.id,
-          externalId: extId,
-          customerId: customerRecord?.id,
-          totalPrice: total,
-        },
-      });
-
-      if (customerRecord) {
-        await prisma.customer.update({
-          where: { id: customerRecord.id },
-          data: { totalSpent: { increment: total } },
-        });
-      }
-      console.log('Processed orders/create for shop', shop, 'order id', extId);
+      const result = await forward('/api/data/orders', body);
+      if (!result.ok) throw result.err;
+      console.log('Forwarded orders/create for shop', shop, 'order', extId);
     } else if (topic === 'customers/create') {
       const extId = String(payload.id);
-      await prisma.customer.upsert({
-        where: { tenantId_externalId: { tenantId: tenant.id, externalId: extId } },
-        update: {
-          email: payload.email,
-          firstName: payload.first_name,
-          lastName: payload.last_name,
-        },
-        create: {
-          tenantId: tenant.id,
-          externalId: extId,
-          email: payload.email,
-          firstName: payload.first_name,
-          lastName: payload.last_name,
-        },
-      });
-      console.log('Processed customers/create for shop', shop, 'customer id', extId);
+      const body = {
+        externalId: extId,
+        email: payload.email,
+        firstName: payload.first_name,
+        lastName: payload.last_name,
+      };
+      const result = await forward('/api/data/customers', body);
+      if (!result.ok) throw result.err;
+      console.log('Forwarded customers/create for shop', shop, 'customer', extId);
     } else if (topic === 'checkouts/create') {
-      // Treat as a "checkout started" event or potential abandoned cart signal
-      console.log('Received checkouts/create (checkout started) for shop', shop);
-      // You can map payload to a custom events table later; for now log.
+      // Checkout started — optional mapping to custom events or customer
+      // We'll forward a minimal "custom event" to a product/order endpoint as demonstration,
+      // or just log for now. You can expand to a custom events table later.
+      console.log('Received checkouts/create for shop', shop, 'checkout id', payload.id);
     } else {
       console.log('Unhandled topic', topic);
     }
 
-    res.status(200).send('ok');
+    return res.status(200).send('ok');
   } catch (err) {
-    console.error('Error processing webhook', err);
-    res.status(500).send('failed');
+    console.error('Error processing webhook forward', err);
+    return res.status(500).send('failed');
   }
 });
 
