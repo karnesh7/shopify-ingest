@@ -79,6 +79,13 @@ router.get('/callback', async (req: Request, res: Response) => {
       },
     });
 
+    // defensive check to satisfy TypeScript's strict null checks
+    if (!tenant) {
+      console.error('Failed to upsert tenant for', shop);
+      return res.status(500).send('failed to create tenant');
+    }
+
+
     // Create webhook subscriptions for the shop
     await createShopifyWebhooks(shop, accessToken);
 
