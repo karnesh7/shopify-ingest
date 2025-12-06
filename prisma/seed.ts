@@ -12,7 +12,7 @@ async function main() {
     create: {
       name: 'Acme Store',
       slug: 'acme-store',
-      apiKey: '3597765940858afeb953ba0fbb64ceb975b6bf75f25600ea'
+      apiKey: 'd164897e4fca3a9d1cdb6a878ce8752bfd0c036f237f7e4e'
     }
   });
 

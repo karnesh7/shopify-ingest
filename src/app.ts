@@ -5,6 +5,7 @@ import morgan from 'morgan';
 import tenantRouter from './routes/tenants';
 import dataRouter from './routes/data';
 import shopifyRouter from './routes/shopify';
+import insightsRouter from './routes/insights';
 
 const app = express();
 app.use(helmet());
@@ -36,5 +37,6 @@ app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 app.use('/api/tenants', tenantRouter);
 app.use('/api/data', dataRouter);
 app.use('/shopify', shopifyRouter);
+app.use('/api/insights', insightsRouter);
 
 export default app;
