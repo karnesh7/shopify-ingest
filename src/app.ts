@@ -6,6 +6,7 @@ import tenantRouter from './routes/tenants';
 import dataRouter from './routes/data';
 import shopifyRouter from './routes/shopify';
 import insightsRouter from './routes/insights';
+import cors from 'cors';
 
 const app = express();
 app.use(helmet());
@@ -38,5 +39,7 @@ app.use('/api/tenants', tenantRouter);
 app.use('/api/data', dataRouter);
 app.use('/shopify', shopifyRouter);
 app.use('/api/insights', insightsRouter);
+// add CORS - allow local frontend for dev
+app.use(cors({ origin: ['http://localhost:3000'], credentials: true }));
 
 export default app;
