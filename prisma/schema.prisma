@@ -1,10 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
-// prisma/schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
@@ -15,10 +8,60 @@ datasource db {
 }
 
 model Tenant {
-  id        Int      @id @default(autoincrement())
+  id        Int       @id @default(autoincrement())
   name      String
-  slug      String   @unique
-  apiKey    String   @unique
-  createdAt DateTime @default(now())
-  // later: relation fields for Customers, Orders, Products
+  slug      String    @unique
+  apiKey    String    @unique
+  createdAt DateTime  @default(now())
+  customers Customer[]
+  products  Product[]
+  orders    Order[]
+}
+
+model Customer {
+  id           Int      @id @default(autoincrement())
+  tenantId     Int
+  externalId   String?  // id from Shopify or external system
+  email        String?
+  firstName    String?
+  lastName     String?
+  totalSpent   Float    @default(0.0)
+  createdAt    DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  orders Order[]            // opposite relation for Order.customer
+
+  @@index([tenantId])
+  @@unique([tenantId, externalId])
+}
+
+model Product {
+  id         Int      @id @default(autoincrement())
+  tenantId   Int
+  externalId String?   // Shopify product id
+  title      String
+  sku        String?
+  price      Float
+  createdAt  DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@unique([tenantId, externalId])
+}
+
+model Order {
+  id          Int      @id @default(autoincrement())
+  tenantId    Int
+  externalId  String?   // Shopify order id
+  customerId  Int?      // FK to Customer.id
+  totalPrice  Float
+  createdAt   DateTime  @default(now())
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@unique([tenantId, externalId])
 }
