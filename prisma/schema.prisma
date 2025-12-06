@@ -8,14 +8,16 @@ datasource db {
 }
 
 model Tenant {
-  id        Int       @id @default(autoincrement())
-  name      String
-  slug      String    @unique
-  apiKey    String    @unique
-  createdAt DateTime  @default(now())
-  customers Customer[]
-  products  Product[]
-  orders    Order[]
+  id         Int       @id @default(autoincrement())
+  name       String
+  slug       String    @unique
+  apiKey     String    @unique
+  shopDomain String?   @unique
+  accessToken String? 
+  createdAt  DateTime  @default(now())
+  customers  Customer[]
+  products   Product[]
+  orders     Order[]
 }
 
 model Customer {
