@@ -79,11 +79,15 @@ router.get('/callback', async (req: Request, res: Response) => {
       },
     });
 
-    // defensive check to satisfy TypeScript's strict null checks
+    // Defensive check
     if (!tenant) {
       console.error('Failed to upsert tenant for', shop);
       return res.status(500).send('failed to create tenant');
     }
+
+    // Extract values you will use in nested functions to preserve non-null typing
+    const tenantId = tenant.id;
+    const tenantApiKey = tenant.apiKey;
 
 
     // Create webhook subscriptions for the shop
@@ -142,6 +146,7 @@ async function createShopifyWebhooks(shop: string, accessToken: string) {
  * Webhook receiver - verify HMAC and forward to internal ingestion endpoints.
  * POST /shopify/webhook
  */
+// POST /shopify/webhook
 router.post('/webhook', async (req: Request, res: Response) => {
   const hmacHeader = req.header('x-shopify-hmac-sha256') || '';
   const shop = req.header('x-shopify-shop-domain') || '';
@@ -154,9 +159,9 @@ router.post('/webhook', async (req: Request, res: Response) => {
   }
 
   // verify HMAC
-  const hmac = crypto.createHmac('sha256', SHOPIFY_API_SECRET!).update(rawBody).digest('base64');
-  if (hmac !== hmacHeader) {
-    console.warn('Webhook HMAC verification failed', { expected: hmac, got: hmacHeader });
+  const expectedHmac = crypto.createHmac('sha256', SHOPIFY_API_SECRET!).update(rawBody).digest('base64');
+  if (expectedHmac !== hmacHeader) {
+    console.warn('Webhook HMAC verification failed', { expected: expectedHmac, got: hmacHeader });
     return res.status(401).send('HMAC validation failed');
   }
 
@@ -169,45 +174,64 @@ router.post('/webhook', async (req: Request, res: Response) => {
     return res.status(400).send('invalid json');
   }
 
-  // Find tenant by shop domain
-  const tenant = await prisma.tenant.findUnique({ where: { shopDomain: shop as string } });
-  if (!tenant) {
-    console.warn('Received webhook for unknown shop', shop);
-    return res.status(404).send('unknown shop');
-  }
-
-  // Helper: forward to internal endpoint with tenant apiKey, with simple retries
-  async function forward(urlPath: string, body: any) {
-    const maxTries = 3;
-    let lastErr: any = null;
-    for (let attempt = 1; attempt <= maxTries; attempt++) {
-      try {
-        const url = `${INTERNAL_API}${urlPath}`;
-        await axios.post(url, body, {
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': tenant.apiKey,
-          },
-          timeout: 5000,
-        });
-        return { ok: true };
-      } catch (err: any) {
-        lastErr = err;
-        console.warn(`Forward attempt ${attempt} failed for ${urlPath}`, err?.response?.data || err.message);
-        // small delay
-        await new Promise((r) => setTimeout(r, 200 * attempt));
-      }
-    }
-    return { ok: false, err: lastErr };
-  }
-
+  // Find or create tenant by shop domain (ensure slug upsert)
   try {
+    const slug = (shop as string).split('.')[0];
+    const tenant = await prisma.tenant.upsert({
+      where: { slug },
+      update: {
+        shopDomain: shop as string,
+        // do not overwrite apiKey by default; keep existing
+        accessToken: undefined as any, // no-op; we just want to preserve existing accessToken if any
+      },
+      create: {
+        name: `${slug} (Shopify)`,
+        slug,
+        apiKey: crypto.randomBytes(24).toString('hex'),
+        shopDomain: shop as string,
+      },
+    });
+
+    if (!tenant) {
+      console.error('Failed to upsert tenant for', shop);
+      return res.status(500).send('failed to upsert tenant');
+    }
+
+    // pull values into locals so nested functions/closures have non-null types
+    const tenantId = tenant.id;
+    const tenantApiKey = tenant.apiKey;
+
+    // Helper: forward to internal endpoint with tenant apiKey, with simple retries
+    async function forward(urlPath: string, body: any) {
+      const maxTries = 3;
+      let lastErr: any = null;
+      for (let attempt = 1; attempt <= maxTries; attempt++) {
+        try {
+          const url = `${INTERNAL_API}${urlPath}`;
+          await axios.post(url, body, {
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': tenantApiKey,
+            },
+            timeout: 5000,
+          });
+          return { ok: true };
+        } catch (err: any) {
+          lastErr = err;
+          console.warn(`Forward attempt ${attempt} failed for ${urlPath}`, err?.response?.data || err.message);
+          // small delay
+          await new Promise((r) => setTimeout(r, 200 * attempt));
+        }
+      }
+      return { ok: false, err: lastErr };
+    }
+
+    // Map and forward per topic
     if (topic === 'orders/create') {
       const extId = String(payload.id);
       const total = Number(payload.total_price ?? payload.total_price);
       const customerShopId = payload.customer?.id ? String(payload.customer.id) : undefined;
 
-      // map payload to our internal /api/data/orders body
       const body = {
         externalId: extId,
         customerExternalId: customerShopId,
@@ -215,8 +239,12 @@ router.post('/webhook', async (req: Request, res: Response) => {
       };
 
       const result = await forward('/api/data/orders', body);
-      if (!result.ok) throw result.err;
+      if (!result.ok) {
+        console.error('Failed to forward order', result.err);
+        return res.status(500).send('forward failed');
+      }
       console.log('Forwarded orders/create for shop', shop, 'order', extId);
+      return res.status(200).send('ok');
     } else if (topic === 'customers/create') {
       const extId = String(payload.id);
       const body = {
@@ -226,22 +254,24 @@ router.post('/webhook', async (req: Request, res: Response) => {
         lastName: payload.last_name,
       };
       const result = await forward('/api/data/customers', body);
-      if (!result.ok) throw result.err;
+      if (!result.ok) {
+        console.error('Failed to forward customer', result.err);
+        return res.status(500).send('forward failed');
+      }
       console.log('Forwarded customers/create for shop', shop, 'customer', extId);
+      return res.status(200).send('ok');
     } else if (topic === 'checkouts/create') {
-      // Checkout started — optional mapping to custom events or customer
-      // We'll forward a minimal "custom event" to a product/order endpoint as demonstration,
-      // or just log for now. You can expand to a custom events table later.
       console.log('Received checkouts/create for shop', shop, 'checkout id', payload.id);
+      return res.status(200).send('ok');
     } else {
       console.log('Unhandled topic', topic);
+      return res.status(200).send('ignored');
     }
-
-    return res.status(200).send('ok');
   } catch (err) {
-    console.error('Error processing webhook forward', err);
+    console.error('Error in webhook handler', err);
     return res.status(500).send('failed');
   }
 });
+
 
 export default router;
