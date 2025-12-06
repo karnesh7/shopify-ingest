@@ -1,9 +1,9 @@
 // src/routes/insights.ts
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { requireTenant } from '../middleware/tenant';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { parseISO, startOfDay, endOfDay } from 'date-fns';
-import { Prisma } from '@prisma/client';
+
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -54,35 +54,53 @@ router.get('/orders', async (req, res) => {
     const rawEnd = req.query.end as string | undefined;
 
     // default last 30 days if not provided
-    let startDate = rawStart ? startOfDay(parseISO(rawStart)) : startOfDay(new Date(Date.now() - 1000 * 60 * 60 * 24 * 29));
-    let endDate = rawEnd ? endOfDay(parseISO(rawEnd)) : endOfDay(new Date());
+    const startDate = rawStart ? startOfDay(parseISO(rawStart)) : startOfDay(new Date(Date.now() - 1000 * 60 * 60 * 24 * 29));
+    const endDate = rawEnd ? endOfDay(parseISO(rawEnd)) : endOfDay(new Date());
 
-    // Prisma groupBy per-day using DATE(createdAt) via raw query if necessary.
-    // Safer approach: aggregate via SQL-like grouping using $queryRaw for portability.
+    const startIso = startDate.toISOString();
+    const endIso = endDate.toISOString();
+
+    // Use Prisma.sql tagged template correctly
     const results = await prisma.$queryRaw<
       Array<{ date: string; orderCount: number; revenue: number }>
     >(
-    Prisma.sql`
+      Prisma.sql`
         SELECT DATE(createdAt) as date,
-            COUNT(*) as orderCount,
-            COALESCE(SUM(totalPrice), 0) as revenue
+               COUNT(*) as orderCount,
+               COALESCE(SUM(totalPrice),0) as revenue
         FROM \`Order\`
-        WHERE tenantId = ${tenantId} AND createdAt BETWEEN ${startDate} AND ${endDate}
+        WHERE tenantId = ${tenantId} AND createdAt BETWEEN ${startIso} AND ${endIso}
         GROUP BY DATE(createdAt)
         ORDER BY DATE(createdAt) ASC
-    `
+      `
     );
 
-    // normalize date strings (YYYY-MM-DD)
-    const normalized = results.map((r) => ({
-      date: (r.date as unknown as string).slice(0, 10),
-      orderCount: Number(r.orderCount),
-      revenue: Number(r.revenue),
-    }));
+    const normalized = results.map((r) => {
+    const dateVal: any = r.date;
+    let dateStr: string;
 
-    return res.json({ start: startDate.toISOString(), end: endDate.toISOString(), data: normalized });
+    if (dateVal && typeof dateVal.toISOString === 'function') {
+        // it's a Date-like object
+        dateStr = dateVal.toISOString().slice(0, 10);
+    } else {
+        dateStr = String(dateVal).slice(0, 10);
+    }
+
+    return {
+        date: dateStr,
+        orderCount: Number(r.orderCount),
+        revenue: Number(r.revenue),
+    };
+    });
+
+    return res.json({ start: startIso, end: endIso, data: normalized });
   } catch (err) {
+    // Log detailed error for debugging
     console.error('insights/orders error', err);
+    // If it's a Prisma error, log the meta if present
+    if ((err as any)?.meta) {
+      console.error('prisma meta:', (err as any).meta);
+    }
     return res.status(500).json({ error: 'could not fetch orders by date' });
   }
 });
