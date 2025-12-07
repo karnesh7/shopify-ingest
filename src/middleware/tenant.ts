@@ -14,7 +14,12 @@ declare global {
 
 export async function requireTenant(req: Request, res: Response, next: NextFunction) {
   try {
-    const apiKey = req.header('x-api-key') || req.header('authorization'); // support either
+    // Allow CORS preflight requests to pass through without authentication
+    if (req.method === 'OPTIONS') {
+      return next();
+    }
+
+    const apiKey = (req.header('x-api-key') || req.header('authorization') || '').toString();
     if (!apiKey) {
       return res.status(401).json({ error: 'x-api-key header required' });
     }

@@ -12,6 +12,9 @@ const app = express();
 app.use(helmet());
 app.use(morgan('dev'));
 
+// add CORS - allow local frontend for dev
+app.use(cors({ origin: ['http://localhost:3000'], credentials: true }));
+
 // capture raw body for webhook verification
 app.use((req, res, next) => {
   if (req.path === '/shopify/webhook') {
@@ -39,7 +42,5 @@ app.use('/api/tenants', tenantRouter);
 app.use('/api/data', dataRouter);
 app.use('/shopify', shopifyRouter);
 app.use('/api/insights', insightsRouter);
-// add CORS - allow local frontend for dev
-app.use(cors({ origin: ['http://localhost:3000'], credentials: true }));
 
 export default app;

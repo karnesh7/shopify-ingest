@@ -6,20 +6,25 @@ import OrdersChart from "../../components/OrdersChart";
 
 export default function DashboardPage() {
   const [summary, setSummary] = useState<any>(null);
+  // fetch orders
+  const [orders, setOrders] = useState<any>([]);
+  const [topCustomers, setTopCustomers] = useState([]);
+
+  //const name = `${c.firstName || ''} ${c.lastName || ''}`.trim() || c.externalId || '—';
+  //const spend = Number(c.totalSpent ?? 0);
   const API = process.env.NEXT_PUBLIC_API_BASE;
 
-  const apiKey = "d164897e4fca3a9d1cdb6a878ce8752bfd0c036f237f7e4e"; // you’ll replace with the tenant key later
+  const apiKey = process.env.NEXT_PUBLIC_TENANT_API_KEY || "d164897e4fca3a9d1cdb6a878ce8752bfd0c036f237f7e4e";
+
 
   useEffect(() => {
     axios
       .get(`${API}/api/insights/summary`, {
         headers: { "x-api-key": apiKey },
       })
-      .then((res) => setSummary(res.data));
+      .then(res => { console.log('summary res', res.data); setSummary(res.data); })
+      .catch(err => { console.error('summary error', err); });
   }, []);
-
-  // fetch orders
-  const [orders, setOrders] = useState<any>([]);
 
   useEffect(() => {
     axios
@@ -28,8 +33,6 @@ export default function DashboardPage() {
       })
       .then((res) => setOrders(res.data.data));
   }, []);
-
-  const [topCustomers, setTopCustomers] = useState([]);
 
   useEffect(() => {
     axios
@@ -64,7 +67,7 @@ export default function DashboardPage() {
       )}
 
       <h2 className="text-xl font-semibold mt-10 mb-4">Revenue Over Time</h2>
-      <OrdersChart data={orders} />
+      {orders.length ? <OrdersChart data={orders} /> : <div className="h-64 bg-gray-50 flex items-center justify-center">No data</div>}
 
       <h2 className="text-xl font-semibold mt-10 mb-4">Top 5 Customers</h2>
       <table className="w-full border">
