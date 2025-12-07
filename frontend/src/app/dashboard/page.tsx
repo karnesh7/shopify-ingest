@@ -51,23 +51,28 @@ export default function DashboardPage() {
 
       {summary && (
         <div className="grid grid-cols-3 gap-4">
-          <div className="p-4 rounded bg-gray-100">
-            <h3>Total Customers</h3>
-            <p className="text-2xl">{summary.totalCustomers}</p>
+          <div className="p-4 rounded bg-white text-gray-800 shadow">
+            <h3 className="text-sm font-medium">Total Customers</h3>
+            <p className="text-2xl font-bold">{summary.totalCustomers}</p>
           </div>
-          <div className="p-4 rounded bg-gray-100">
-            <h3>Total Orders</h3>
-            <p className="text-2xl">{summary.totalOrders}</p>
+
+          <div className="p-4 rounded bg-white text-gray-800 shadow">
+            <h3 className="text-sm font-medium">Total Orders</h3>
+            <p className="text-2xl font-bold">{summary.totalOrders}</p>
           </div>
-          <div className="p-4 rounded bg-gray-100">
-            <h3>Total Revenue</h3>
-            <p className="text-2xl">${summary.totalRevenue.toFixed(2)}</p>
+
+          <div className="p-4 rounded bg-white text-gray-800 shadow">
+            <h3 className="text-sm font-medium">Total Revenue</h3>
+            <p className="text-2xl font-bold">${Number(summary.totalRevenue ?? 0).toFixed(2)}</p>
           </div>
         </div>
       )}
 
       <h2 className="text-xl font-semibold mt-10 mb-4">Revenue Over Time</h2>
-      {orders.length ? <OrdersChart data={orders} /> : <div className="h-64 bg-gray-50 flex items-center justify-center">No data</div>}
+      {orders.length ? <div className="mt-6">
+        <div className="bg-transparent text-gray-800">
+          <OrdersChart data={orders} />
+        </div></div> : <div className="h-64 bg-gray-50 flex items-center justify-center">No data</div>}
 
       <h2 className="text-xl font-semibold mt-10 mb-4">Top 5 Customers</h2>
       <table className="w-full border">
@@ -79,13 +84,24 @@ export default function DashboardPage() {
           </tr>
         </thead>
         <tbody>
-          {topCustomers.map((c: any, i: number) => (
-            <tr key={i} className="border-b">
-              <td className="p-2">{c.name}</td>
-              <td className="p-2">{c.email}</td>
-              <td className="p-2">${c.totalSpend.toFixed(2)}</td>
+          {topCustomers.length === 0 ? (
+            <tr>
+              <td className="p-4" colSpan={3}>No customers yet</td>
             </tr>
-          ))}
+          ) : (
+            topCustomers.map((c: any, i: number) => {
+              const name = `${c.firstName || ''} ${c.lastName || ''}`.trim() || c.externalId || '—';
+              const email = c.email || '—';
+              const spend = Number(c.totalSpent ?? 0);
+              return (
+                <tr key={i} className="border-b">
+                  <td className="p-2">{name}</td>
+                  <td className="p-2">{email}</td>
+                  <td className="p-2">${spend.toFixed(2)}</td>
+                </tr>
+              );
+            })
+          )}
         </tbody>
       </table>
     </div>
