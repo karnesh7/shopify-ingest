@@ -8,7 +8,7 @@ export default function DashboardPage() {
   const [summary, setSummary] = useState<any>(null);
   const API = process.env.NEXT_PUBLIC_API_BASE;
 
-  const apiKey = "REPLACE_WITH_TENANT_API_KEY"; // you’ll replace with the tenant key later
+  const apiKey = "d164897e4fca3a9d1cdb6a878ce8752bfd0c036f237f7e4e"; // you’ll replace with the tenant key later
 
   useEffect(() => {
     axios
