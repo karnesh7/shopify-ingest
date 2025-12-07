@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import axios from "axios";
+import OrdersChart from "../../components/OrdersChart";
 
 export default function DashboardPage() {
   const [summary, setSummary] = useState<any>(null);
@@ -16,6 +17,18 @@ export default function DashboardPage() {
       })
       .then((res) => setSummary(res.data));
   }, []);
+
+  // fetch orders
+  const [orders, setOrders] = useState<any>([]);
+
+  useEffect(() => {
+    axios
+      .get(`${API}/api/insights/orders`, {
+        headers: { "x-api-key": apiKey },
+      })
+      .then((res) => setOrders(res.data.data));
+  }, []);
+
 
   return (
     <div>
@@ -39,6 +52,10 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      <h2 className="text-xl font-semibold mt-10 mb-4">Revenue Over Time</h2>
+      <OrdersChart data={orders} />
+
     </div>
   );
 }
