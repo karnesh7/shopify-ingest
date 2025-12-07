@@ -29,6 +29,16 @@ export default function DashboardPage() {
       .then((res) => setOrders(res.data.data));
   }, []);
 
+  const [topCustomers, setTopCustomers] = useState([]);
+
+  useEffect(() => {
+    axios
+      .get(`${API}/api/insights/top-customers?limit=5`, {
+        headers: { "x-api-key": apiKey },
+      })
+      .then((res) => setTopCustomers(res.data.data));
+  }, []);
+
 
   return (
     <div>
@@ -56,6 +66,25 @@ export default function DashboardPage() {
       <h2 className="text-xl font-semibold mt-10 mb-4">Revenue Over Time</h2>
       <OrdersChart data={orders} />
 
+      <h2 className="text-xl font-semibold mt-10 mb-4">Top 5 Customers</h2>
+      <table className="w-full border">
+        <thead>
+          <tr className="border-b">
+            <th className="p-2 text-left">Name</th>
+            <th className="p-2 text-left">Email</th>
+            <th className="p-2 text-left">Spend</th>
+          </tr>
+        </thead>
+        <tbody>
+          {topCustomers.map((c: any, i: number) => (
+            <tr key={i} className="border-b">
+              <td className="p-2">{c.name}</td>
+              <td className="p-2">{c.email}</td>
+              <td className="p-2">${c.totalSpend.toFixed(2)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
