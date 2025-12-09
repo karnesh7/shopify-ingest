@@ -136,4 +136,41 @@ router.get('/top-customers', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/insights/recent-orders?limit=50
+ * Returns recent orders for tenant (most recent first)
+ */
+router.get('/recent-orders', async (req, res) => {
+  try {
+    const tenant = req.tenant!;
+    const tenantId = tenant.id;
+    const limit = Math.min(1000, Number(req.query.limit || 50));
+
+    const rows = await prisma.order.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      select: { externalId: true, totalPrice: true, createdAt: true, customerId: true },
+    });
+
+    // Optionally join customer email/name for each order
+    const ordersWithCustomer = await Promise.all(
+      rows.map(async (o) => {
+        const customer = o.customerId ? await prisma.customer.findUnique({ where: { id: o.customerId } }) : null;
+        return {
+          externalId: o.externalId,
+          totalPrice: o.totalPrice,
+          createdAt: o.createdAt,
+          customer: customer ? { email: customer.email, firstName: customer.firstName, lastName: customer.lastName, externalId: customer.externalId } : null,
+        };
+      })
+    );
+
+    return res.json({ data: ordersWithCustomer });
+  } catch (err) {
+    console.error('insights/recent-orders error', err);
+    return res.status(500).json({ error: 'could not fetch recent orders' });
+  }
+});
+
 export default router;
