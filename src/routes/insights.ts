@@ -110,24 +110,41 @@ router.get('/orders', async (req, res) => {
  * Returns top customers by totalSpent
  * [{ externalId, email, firstName, lastName, totalSpent }, ...]
  */
+
 router.get('/top-customers', async (req, res) => {
   try {
     const tenant = req.tenant!;
     const tenantId = tenant.id;
     const limit = Math.min(100, Number(req.query.limit || 5));
 
-    const rows = await prisma.customer.findMany({
-      where: { tenantId },
-      orderBy: { totalSpent: 'desc' },
-      take: limit,
-      select: {
-        externalId: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        totalSpent: true,
-      },
-    });
+    // Raw SQL to sum orders per customer for the given tenant.
+    // Uses parameterized query to avoid injection.
+    const rows = await prisma.$queryRaw<
+      Array<{
+        id: number;
+        externalId: string | null;
+        email: string | null;
+        firstName: string | null;
+        lastName: string | null;
+        totalSpent: number;
+      }>
+    >(
+      Prisma.sql`
+      SELECT c.id,
+             c.externalId,
+             c.email,
+             c.firstName,
+             c.lastName,
+             COALESCE(SUM(o.totalPrice), 0) as totalSpent
+      FROM \`Customer\` c
+      LEFT JOIN \`Order\` o
+        ON o.customerId = c.id AND o.tenantId = ${tenantId}
+      WHERE c.tenantId = ${tenantId}
+      GROUP BY c.id
+      ORDER BY totalSpent DESC
+      LIMIT ${limit};
+    `
+    );
 
     return res.json({ data: rows });
   } catch (err) {
@@ -135,6 +152,7 @@ router.get('/top-customers', async (req, res) => {
     return res.status(500).json({ error: 'could not fetch top customers' });
   }
 });
+
 
 /**
  * GET /api/insights/recent-orders?limit=50
