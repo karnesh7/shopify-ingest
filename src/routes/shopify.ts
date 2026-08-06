@@ -274,4 +274,131 @@ router.post('/webhook', async (req: Request, res: Response) => {
 });
 
 
-export default router;
+/**
+ * Bulk sync all customers, products, and orders from Shopify REST API
+ * GET /shopify/sync/:shop   e.g. /shopify/sync/project-dev.myshopify.com
+ */
+router.get('/sync/:shop', async (req: Request, res: Response) => {
+  const shop = req.params.shop;
+
+  // Look up tenant by shop domain
+  const tenant = await prisma.tenant.findUnique({ where: { shopDomain: shop } });
+  if (!tenant) {
+    return res.status(404).json({ error: `No tenant found for shop: ${shop}. Install the app first.` });
+  }
+  if (!tenant.accessToken) {
+    return res.status(400).json({ error: `Tenant found but no accessToken stored. Re-install the app.` });
+  }
+
+  const accessToken = tenant.accessToken;
+  const tenantId = tenant.id;
+  const headers = { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' };
+  const apiBase = `https://${shop}/admin/api/2024-07`;
+
+  const results: Record<string, { synced: number; errors: number }> = {
+    customers: { synced: 0, errors: 0 },
+    products: { synced: 0, errors: 0 },
+    orders: { synced: 0, errors: 0 },
+  };
+
+  try {
+    // ---- SYNC CUSTOMERS ----
+    const customersRes = await axios.get(`${apiBase}/customers.json?limit=250`, { headers });
+    const shopifyCustomers: any[] = customersRes.data.customers || [];
+    for (const c of shopifyCustomers) {
+      try {
+        await prisma.customer.upsert({
+          where: { tenantId_externalId: { tenantId, externalId: String(c.id) } },
+          update: { email: c.email, firstName: c.first_name, lastName: c.last_name },
+          create: {
+            tenantId,
+            externalId: String(c.id),
+            email: c.email,
+            firstName: c.first_name,
+            lastName: c.last_name,
+          },
+        });
+        results.customers.synced++;
+      } catch (e) {
+        console.warn('Customer upsert failed:', c.id, e);
+        results.customers.errors++;
+      }
+    }
+
+    // ---- SYNC PRODUCTS ----
+    const productsRes = await axios.get(`${apiBase}/products.json?limit=250`, { headers });
+    const shopifyProducts: any[] = productsRes.data.products || [];
+    for (const p of shopifyProducts) {
+      // each Shopify product can have multiple variants — sync each variant as a product record
+      for (const variant of (p.variants || [{ id: p.id, sku: '', price: 0 }])) {
+        try {
+          await prisma.product.upsert({
+            where: { tenantId_externalId: { tenantId, externalId: String(variant.id) } },
+            update: { title: p.title, sku: variant.sku || null, price: parseFloat(variant.price) || 0 },
+            create: {
+              tenantId,
+              externalId: String(variant.id),
+              title: p.title,
+              sku: variant.sku || null,
+              price: parseFloat(variant.price) || 0,
+            },
+          });
+          results.products.synced++;
+        } catch (e) {
+          console.warn('Product upsert failed:', variant.id, e);
+          results.products.errors++;
+        }
+      }
+    }
+
+    // ---- SYNC ORDERS ----
+    const ordersRes = await axios.get(`${apiBase}/orders.json?limit=250&status=any`, { headers });
+    const shopifyOrders: any[] = ordersRes.data.orders || [];
+    for (const o of shopifyOrders) {
+      try {
+        // Try to find the linked customer
+        let customerId: number | null = null;
+        if (o.customer?.id) {
+          const cust = await prisma.customer.findFirst({
+            where: { tenantId, externalId: String(o.customer.id) },
+          });
+          if (cust) customerId = cust.id;
+        }
+
+        await prisma.order.upsert({
+          where: { tenantId_externalId: { tenantId, externalId: String(o.id) } },
+          update: { totalPrice: parseFloat(o.total_price) || 0, customerId },
+          create: {
+            tenantId,
+            externalId: String(o.id),
+            customerId,
+            totalPrice: parseFloat(o.total_price) || 0,
+            createdAt: new Date(o.created_at),
+          },
+        });
+
+        // Update customer totalSpent if linked
+        if (customerId) {
+          await prisma.customer.update({
+            where: { id: customerId },
+            data: { totalSpent: { increment: parseFloat(o.total_price) || 0 } },
+          });
+        }
+
+        results.orders.synced++;
+      } catch (e) {
+        console.warn('Order upsert failed:', o.id, e);
+        results.orders.errors++;
+      }
+    }
+
+    console.log(`Sync complete for ${shop}:`, results);
+    return res.json({ success: true, shop, tenantId, results });
+
+  } catch (err: any) {
+    console.error('Sync error:', err?.response?.data || err.message);
+    return res.status(500).json({ error: 'Sync failed', details: err?.response?.data || err.message });
+  }
+});
+
+export default router;
