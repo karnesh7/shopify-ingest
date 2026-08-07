@@ -7,6 +7,7 @@ import CustomerSegmentChart from "../../components/CustomerSegmentChart";
 import KpiCard from "../../components/KpiCard";
 import RfmSegmentation from "../../components/RfmSegmentation";
 import CohortHeatmap from "../../components/CohortHeatmap";
+import QueueTelemetryCard from "../../components/QueueTelemetryCard";
 import { subDays, format } from "date-fns";
 
 export default function DashboardPage() {
@@ -24,6 +25,7 @@ export default function DashboardPage() {
   const [recentOrders, setRecentOrders] = useState<any[]>([]);
   const [rfmData, setRfmData] = useState<any>(null);
   const [cohortData, setCohortData] = useState<any>(null);
+  const [queueTelemetry, setQueueTelemetry] = useState<any>(null);
 
   // Date range presets
   const [preset, setPreset] = useState<"7d" | "30d" | "90d" | "custom">("30d");
@@ -98,9 +100,16 @@ export default function DashboardPage() {
     axios
       .get(`${API}/api/insights/cohorts`, { headers })
       .then((res) => setCohortData(res.data))
-      .catch((err) => console.error("cohorts error", err))
+      .catch((err) => console.error("cohorts error", err));
+
+    // Fetch Queue Telemetry
+    axios
+      .get(`${API}/api/insights/queue-status`, { headers })
+      .then((res) => setQueueTelemetry(res.data.telemetry))
+      .catch((err) => console.error("queue-status error", err))
       .finally(() => setLoading(false));
   }
+
 
   async function fetchOrders(start: string, end: string) {
     if (!apiKey) return;
@@ -177,14 +186,18 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {!apiKey && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-center text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
-          <p className="text-sm font-medium">Please enter a valid Tenant API key above to load store telemetry.</p>
-        </div>
+      {/* Live Tenant-Isolated Asynchronous Queue Telemetry */}
+      {apiKey && (
+        <QueueTelemetryCard
+          telemetry={queueTelemetry}
+          apiKey={apiKey}
+          onSimulateSuccess={fetchAllData}
+        />
       )}
 
       {/* Navigation Tabs Bar */}
       <div className="flex items-center gap-2 border-b border-gray-200 pb-1 dark:border-zinc-800">
+
         <button
           type="button"
           onClick={() => setActiveTab("overview")}
