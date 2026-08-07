@@ -22,11 +22,13 @@
   "dependencies": {
     "@prisma/client": "^5.22.0",
     "axios": "^1.13.2",
+    "bullmq": "^6.0.9",
     "cors": "^2.8.5",
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "helmet": "^8.1.0",
+    "ioredis": "^6.0.0",
     "morgan": "^1.10.1",
     "qs": "^6.14.0"
   },

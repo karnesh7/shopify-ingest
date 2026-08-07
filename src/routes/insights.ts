@@ -3,13 +3,23 @@ import { Router } from 'express';
 import { requireTenant } from '../middleware/tenant';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { parseISO, startOfDay, endOfDay } from 'date-fns';
-
+import { getQueueTelemetry } from '../queue/ingestQueue';
 
 const prisma = new PrismaClient();
 const router = Router();
 
 // require x-api-key header for all insights endpoints
 router.use(requireTenant);
+
+/**
+ * GET /api/insights/queue-status
+ * Returns real-time async ingestion queue telemetry & worker health
+ */
+router.get('/queue-status', (req, res) => {
+  const telemetry = getQueueTelemetry();
+  return res.json({ telemetry });
+});
+
 
 /**
  * GET /api/insights/summary

@@ -142,15 +142,18 @@ async function createShopifyWebhooks(shop: string, accessToken: string) {
   }
 }
 
+import { enqueueWebhookJob } from '../queue/ingestQueue';
+
 /**
- * Webhook receiver - verify HMAC and forward to internal ingestion endpoints.
+ * Webhook receiver - verify HMAC and enqueue to tenant-isolated async queue.
+ * Responds in < 10ms with 200 OK.
  * POST /shopify/webhook
  */
-// POST /shopify/webhook
 router.post('/webhook', async (req: Request, res: Response) => {
   const hmacHeader = req.header('x-shopify-hmac-sha256') || '';
   const shop = req.header('x-shopify-shop-domain') || '';
   const topic = req.header('x-shopify-topic') || '';
+  const webhookIdHeader = req.header('x-shopify-webhook-id') || '';
 
   const rawBody = (req as any).rawBody as Buffer | undefined;
   if (!rawBody) {
@@ -174,15 +177,14 @@ router.post('/webhook', async (req: Request, res: Response) => {
     return res.status(400).send('invalid json');
   }
 
-  // Find or create tenant by shop domain (ensure slug upsert)
+  // Find or create tenant by shop domain
   try {
     const slug = (shop as string).split('.')[0];
     const tenant = await prisma.tenant.upsert({
       where: { slug },
       update: {
         shopDomain: shop as string,
-        // do not overwrite apiKey by default; keep existing
-        accessToken: undefined as any, // no-op; we just want to preserve existing accessToken if any
+        accessToken: undefined as any,
       },
       create: {
         name: `${slug} (Shopify)`,
@@ -197,81 +199,73 @@ router.post('/webhook', async (req: Request, res: Response) => {
       return res.status(500).send('failed to upsert tenant');
     }
 
-    // pull values into locals so nested functions/closures have non-null types
-    const tenantId = tenant.id;
-    const tenantApiKey = tenant.apiKey;
+    const idempotencyKey = webhookIdHeader || `shopify-${topic}-${payload.id || Date.now()}`;
 
-    // Helper: forward to internal endpoint with tenant apiKey, with simple retries
-    async function forward(urlPath: string, body: any) {
-      const maxTries = 3;
-      let lastErr: any = null;
-      for (let attempt = 1; attempt <= maxTries; attempt++) {
-        try {
-          const url = `${INTERNAL_API}${urlPath}`;
-          await axios.post(url, body, {
-            headers: {
-              'Content-Type': 'application/json',
-              'x-api-key': tenantApiKey,
-            },
-            timeout: 5000,
-          });
-          return { ok: true };
-        } catch (err: any) {
-          lastErr = err;
-          console.warn(`Forward attempt ${attempt} failed for ${urlPath}`, err?.response?.data || err.message);
-          // small delay
-          await new Promise((r) => setTimeout(r, 200 * attempt));
-        }
-      }
-      return { ok: false, err: lastErr };
-    }
+    // Offload to tenant-isolated asynchronous queue
+    const queueResult = await enqueueWebhookJob({
+      tenantId: tenant.id,
+      shopDomain: shop as string,
+      topic,
+      payload,
+      receivedAt: new Date().toISOString(),
+      idempotencyKey,
+    });
 
-    // Map and forward per topic
-    if (topic === 'orders/create') {
-      const extId = String(payload.id);
-      const total = Number(payload.total_price ?? payload.total_price);
-      const customerShopId = payload.customer?.id ? String(payload.customer.id) : undefined;
-
-      const body = {
-        externalId: extId,
-        customerExternalId: customerShopId,
-        totalPrice: total,
-      };
-
-      const result = await forward('/api/data/orders', body);
-      if (!result.ok) {
-        console.error('Failed to forward order', result.err);
-        return res.status(500).send('forward failed');
-      }
-      console.log('Forwarded orders/create for shop', shop, 'order', extId);
-      return res.status(200).send('ok');
-    } else if (topic === 'customers/create') {
-      const extId = String(payload.id);
-      const body = {
-        externalId: extId,
-        email: payload.email,
-        firstName: payload.first_name,
-        lastName: payload.last_name,
-      };
-      const result = await forward('/api/data/customers', body);
-      if (!result.ok) {
-        console.error('Failed to forward customer', result.err);
-        return res.status(500).send('forward failed');
-      }
-      console.log('Forwarded customers/create for shop', shop, 'customer', extId);
-      return res.status(200).send('ok');
-    } else if (topic === 'checkouts/create') {
-      console.log('Received checkouts/create for shop', shop, 'checkout id', payload.id);
-      return res.status(200).send('ok');
-    } else {
-      console.log('Unhandled topic', topic);
-      return res.status(200).send('ignored');
-    }
-  } catch (err) {
-    console.error('Error in webhook handler', err);
-    return res.status(500).send('failed');
+    return res.status(200).json({
+      status: 'acknowledged',
+      queued: queueResult.queued,
+      jobId: queueResult.jobId,
+      engine: queueResult.engine,
+      tenantId: tenant.id,
+      shop,
+    });
+  } catch (err: any) {
+    console.error('Webhook enqueue error:', err);
+    return res.status(500).json({ error: 'could not enqueue webhook', details: err?.message });
   }
 });
+
+/**
+ * Developer Simulator Endpoint: simulate a Shopify webhook for a tenant
+ * POST /shopify/simulate-webhook
+ */
+router.post('/simulate-webhook', async (req: Request, res: Response) => {
+  try {
+    const { shopDomain, topic = 'orders/create', payload } = req.body;
+    if (!shopDomain || !payload) {
+      return res.status(400).json({ error: 'shopDomain and payload required' });
+    }
+
+    const slug = String(shopDomain).split('.')[0];
+    const tenant = await prisma.tenant.findFirst({
+      where: { OR: [{ shopDomain }, { slug }] },
+    });
+
+    if (!tenant) {
+      return res.status(404).json({ error: 'tenant not found for domain ' + shopDomain });
+    }
+
+    const idempotencyKey = `sim-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const queueResult = await enqueueWebhookJob({
+      tenantId: tenant.id,
+      shopDomain: tenant.shopDomain || shopDomain,
+      topic,
+      payload,
+      receivedAt: new Date().toISOString(),
+      idempotencyKey,
+    });
+
+    return res.status(200).json({
+      status: 'simulated_and_enqueued',
+      jobId: queueResult.jobId,
+      engine: queueResult.engine,
+      tenant: tenant.name,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'simulation error', details: err?.message });
+  }
+});
+
 
 
 /**
