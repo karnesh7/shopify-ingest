@@ -161,6 +161,7 @@ npm run prisma:seed
 
 ### 3. Start Backend Server
 ```bash
+ngrok http 4000
 npm run dev
 ```
 Backend API will be running at `http://localhost:4000`.
