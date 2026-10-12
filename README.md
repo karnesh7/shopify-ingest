@@ -80,7 +80,7 @@ Shopify Store (Tenant A / B)
 
 ## Empirical Benchmark & Performance Results
 
-Performance metrics verified using the automated benchmark suite ([benchmark.ts](file:///d:/Projects/Shopify/shopify-ingest/scripts/benchmark.ts)) against local Express + MySQL infrastructure:
+Performance metrics verified using the automated benchmark suite ([scripts/benchmark.ts](./scripts/benchmark.ts)) against local Express + MySQL infrastructure:
 
 ### Webhook Ingress (HMAC Verification + Async Queuing)
 | Metric | Measured Value | Description |
@@ -100,7 +100,7 @@ Performance metrics verified using the automated benchmark suite ([benchmark.ts]
 | `/api/insights/summary` | Overall Merchant KPIs | **`12.13 ms`** | **`11.00 ms`** | **`21.01 ms`** |
 | `/api/insights/rfm` | RFM 7-Segment Scoring | **`13.47 ms`** | **`12.99 ms`** | **`20.81 ms`** |
 
-*Full benchmark logs available in [BENCHMARK_RESULTS.md](file:///d:/Projects/Shopify/shopify-ingest/BENCHMARK_RESULTS.md).*
+*Full benchmark logs available in [docs/BENCHMARK_RESULTS.md](./docs/BENCHMARK_RESULTS.md).*
 
 ---
 
@@ -185,7 +185,7 @@ To execute the built-in latency, throughput, and idempotency benchmark suite:
 ```bash
 npm run benchmark
 ```
-This tests the running server under real load and updates `BENCHMARK_RESULTS.md` with freshly measured percentiles (p50, p95, p99).
+This tests the running server under real load and updates `docs/BENCHMARK_RESULTS.md` with freshly measured percentiles (p50, p95, p99).
 
 ---
 
@@ -219,6 +219,16 @@ All `/api/*` endpoints (except `/health` and `/shopify/*`) require tenant authen
 
 ```
 shopify-ingest/
+├── docs/                        # Architectural documentation & benchmark reports
+│   ├── ARCHITECTURE.md          # Multi-tenant ingestion & analytics architecture
+│   └── BENCHMARK_RESULTS.md     # Auto-generated empirical performance report
+├── frontend/                    # Next.js 16 App Router Frontend
+│   ├── src/app/
+│   │   ├── dashboard/           # Analytics dashboard (KPIs, Charts, RFM, Cohorts, Telemetry)
+│   │   ├── login/               # Tenant authentication screen
+│   │   ├── layout.tsx           # Root layout & font setup
+│   │   └── page.tsx             # Landing & redirection page
+│   └── package.json
 ├── prisma/
 │   ├── schema.prisma            # Multi-tenant schema (Tenant, Customer, Product, Order)
 │   └── seed.ts                  # Database seed script for development
@@ -239,14 +249,9 @@ shopify-ingest/
 │       ├── insights.ts          # RFM, cohort matrix, time-series & KPI analytics
 │       ├── shopify.ts           # OAuth 2.0 lifecycle & HMAC webhook receiver
 │       └── tenants.ts           # Tenant registration & management
-├── frontend/                    # Next.js 16 App Router Frontend
-│   ├── src/app/
-│   │   ├── dashboard/           # Analytics dashboard (KPIs, Charts, RFM, Cohorts, Telemetry)
-│   │   ├── login/               # Tenant authentication screen
-│   │   ├── layout.tsx           # Root layout & font setup
-│   │   └── page.tsx             # Landing & redirection page
-│   └── package.json
-├── BENCHMARK_RESULTS.md         # Auto-generated empirical performance report
+├── tests/
+│   └── security.test.ts         # Automated HMAC SHA-256 & tenant security unit tests
+├── .env.example                 # Environment variable template
 ├── package.json
 └── tsconfig.json
 ```

@@ -279,7 +279,11 @@ ${endpoints
 * **Tenant Isolation:** Enforced at query and database index levels.
 `;
 
-  const reportPath = path.join(__dirname, '..', 'BENCHMARK_RESULTS.md');
+  const docsDir = path.join(__dirname, '..', 'docs');
+  if (!fs.existsSync(docsDir)) {
+    fs.mkdirSync(docsDir, { recursive: true });
+  }
+  const reportPath = path.join(docsDir, 'BENCHMARK_RESULTS.md');
   fs.writeFileSync(reportPath, markdownReport, 'utf8');
   console.log(`📄 Benchmark report successfully saved to: ${reportPath}\n`);
 
