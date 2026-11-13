@@ -7,52 +7,68 @@
 [![Prisma](https://img.shields.io/badge/Prisma-5.22-2D3748?logo=prisma)](https://www.prisma.io/)
 [![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1?logo=mysql)](https://www.mysql.com/)
 [![BullMQ](https://img.shields.io/badge/BullMQ-Redis-red?logo=redis)](https://bullmq.io/)
-[![License](https://img.shields.io/badge/License-MIT-purple)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-purple)](LICENSE)
 
-A high-performance, **multi-tenant e-commerce data ingestion and analytics platform** built for Shopify store networks. Designed to ingest, deduplicate, and process high-frequency webhook streams with **sub-12ms p50 latency**, enforce strict tenant-level data isolation, and deliver advanced merchant business intelligence (RFM customer segmentation, monthly cohort retention matrices, and time-series revenue velocity).
-
----
-
-## 🎯 1. Problem Statement & Core Value Proposition
-
-### Why Naive Webhook Pipelines Fail
-Building multi-store e-commerce ingestion pipelines with conventional monolithic or serverless architectures exposes critical vulnerabilities:
-1. **Cryptographic HMAC Invalidation:** Modern web frameworks and body parsers automatically buffer and parse incoming JSON payloads into JavaScript objects. Re-stringifying JSON mutates whitespace, key ordering, and floating-point representations, causing Shopify HMAC-SHA256 signature checks to fail and rejecting valid payloads.
-2. **Ingress Timeouts & Dropped Webhooks:** Shopify enforces strict 5-second webhook delivery deadlines. Executing synchronous database writes, customer recalculations, or complex business logic directly in HTTP request handlers leads to thread blocking and delivery timeouts during traffic spikes (e.g., flash sales or Black Friday), causing Shopify to disable webhook subscriptions.
-3. **Cross-Tenant Data Leakage:** In multi-tenant platforms, storing store metrics without strict schema-level constraints risks catastrophic cross-tenant leakage where Store A accesses Store B's sensitive revenue and customer records.
-4. **Analytical Query Exhaustion:** Computing real-time merchant retention cohorts and RFM scores in application memory blocks the Node.js single-threaded event loop and exhausts server memory.
-
-### Core Value Proposition
-This platform resolves these challenges by combining **raw TCP stream capture**, a **dual-engine decoupled queue** (BullMQ + Redis with in-memory microtask fallback), **strict schema-level tenant partitioning** (`tenantId_extId`), and **push-down parameterized SQL analytical engines**, delivering sub-12ms ingress latency and real-time merchant analytics.
+A high-performance **multi-tenant e-commerce data pipeline and real-time analytics system** built with **Express.js 5, Next.js 16, MySQL 8.0, and BullMQ/Redis**. Solves **Shopify webhook loss, signature tampering, and multi-tenant isolation risks during flash sales** achieving **`11.78 ms` P50 ingress latency**, **`100%` idempotent deduplication**, and **zero-downtime microtask queue failover** — empirically verified across `N = 100` benchmark iterations.
 
 ---
 
-## 🌟 2. Key Features & Visual Walkthrough
+<!-- ════════════════════════════════════════════════════════════════════════════
+     HERO ZONE — Recruiter completes here (First 1–2 scrolls, <75 lines)
+     ════════════════════════════════════════════════════════════════════════════ -->
+
+## 🌟 1. Key Features & Visual Walkthrough
 
 | 📊 Real-Time Operations Dashboard | 👥 RFM Customer Intelligence |
 | :---: | :---: |
 | <img src="screenshots/01-operations-dashboard.png" width="480" alt="Shopify Real-Time Operations Dashboard" /> | <img src="screenshots/02-rfm-customer-retention.png" width="480" alt="RFM Customer Intelligence Matrix" /> |
 | *Live worker telemetry feeds, gross sales velocity, and AOV tracking* | *7-tier algorithmic RFM customer scoring and churn risk breakdown* |
 
-<p align="center">
-  <img src="screenshots/03-sales-performance-trends.png" width="720" alt="Sales Performance Trends & Cohort Retention" /><br/>
-  <em>Time-series revenue velocity, volume curves, and 6-month monthly cohort retention heatmaps</em>
-</p>
+<details>
+<summary>📸 <strong>Click to view additional interface workflows (Sales Performance & Monthly Cohort Retention)</strong></summary>
 
-* **Sub-12ms Ingress Webhook Architecture:** Receives high-frequency Shopify webhooks, performs HMAC signature checks, checks deduplication caches, and returns HTTP 200 within milliseconds.
-* **Dual-Engine Queue Resilience:** Automatic distributed background worker dispatch via BullMQ + Redis, with seamless zero-downtime fallback to an in-memory `setImmediate()` microtask queue if Redis is offline.
-* **Strict Schema Multi-Tenancy:** Complete tenant isolation enforced at middleware (`x-api-key`) and database layers via composite unique constraints (`@@unique([tenantId, externalId])`).
-* **Algorithmic RFM Segmentation:** 7-segment customer intelligence classification (*Champions, Loyalists, Potential Loyalists, At Risk, Need Attention, Hibernating, Prospects*) with targeted marketing guidance.
-* **Cohort Retention Heatmaps:** 6-month customer cohort tracking calculating decay curves and repeat purchase behavior.
+| 📈 Sales Performance Trends & 6-Month Cohort Retention Heatmap |
+| :---: |
+| <img src="screenshots/03-sales-performance-trends.png" width="800" alt="Sales Performance Trends & Cohort Retention" /> |
+| *Time-series revenue velocity, volume curves, and triangular monthly cohort retention matrix* |
+
+</details>
+
+* ⚡ **Sub-12ms Ingress Webhook Architecture:** Captures raw TCP streams, validates HMAC SHA-256 signatures, checks sliding FIFO deduplication caches, and returns HTTP 200 in 11.78ms (p50).
+* 🛡️ **Dual-Engine Queue Resilience:** Distributed worker dispatch via BullMQ + Redis, with automatic zero-downtime fallback to an in-memory `setImmediate()` microtask queue if Redis drops.
+* 🔒 **Strict Multi-Tenant Isolation:** Complete tenant isolation enforced at gateway (`x-api-key`) and database layers via composite unique constraints (`@@unique([tenantId, externalId])`).
+* 📊 **Algorithmic Merchant Intelligence:** 7-tier RFM customer scoring and 6-month monthly cohort retention matrices computed in 5–13ms via indexed raw SQL (`Prisma.sql`).
 
 ---
 
+## ⚡ 2. Benchmarked Performance
+
+Empirical metrics measured against local Express 5 + MySQL 8.0 infrastructure using the automated benchmark harness (`scripts/benchmark.ts`):
+
+| Metric | Measured Value | Significance / Operational Rationale |
+| :--- | :--- | :--- |
+| **Webhook Ingress Latency (P50)** | **`11.78 ms`** | Immediate HTTP 200 acknowledgment; well within Shopify's 5s SLA |
+| **Webhook Ingress Tail Latency (P95)** | **`27.41 ms`** | Sub-30ms performance envelope under sustained burst load |
+| **Webhook Ingress Tail Latency (P99)** | **`164.71 ms`** | Upper-bound response turnaround during queue bursts |
+| **Top Customers SQL Aggregation (P50)** | **`5.27 ms`** | `LEFT JOIN` and `SUM` across indexed foreign keys |
+| **Time-Series Sales Aggregation (P50)** | **`5.82 ms`** | In-engine aggregation via indexed `DATE(createdAt)` |
+| **Monthly Cohort Retention (P50)** | **`10.96 ms`** | 6-month triangular retention matrix computation |
+| **RFM Customer Segmentation (P50)** | **`12.99 ms`** | Algorithmic 7-tier scoring across full merchant catalog |
+| **Duplicate Webhook Suppression** | **`100% Filtered ✅`** | Zero duplicate orders or double-counted revenue |
+| **HMAC SHA-256 Cryptographic Check** | **`100% Validated ✅`** | Bit-for-bit raw buffer signature verification |
+
+---
+
+<!-- ════════════════════════════════════════════════════════════════════════════
+     DEEP-DIVE ZONE — Hiring managers & staff engineers continue here
+     ════════════════════════════════════════════════════════════════════════════ -->
+
 ## 🏗️ 3. System Architecture & Request Lifecycle
 
-```
+```text
 Shopify Store (Tenant A / B)
    │
-   ├── OAuth 2.0 Install Flow ─────────► Tenant Token Provisioning & Webhook Registration
+   ├── OAuth 2.0 Install Flow ─────────► Tenant Token Provisioning & Webhook Setup
    └── Webhooks (orders, customers) ───► POST /shopify/webhook
                                               │
                                        [Raw TCP Byte Stream Capture]
@@ -64,7 +80,7 @@ Shopify Store (Tenant A / B)
                          ┌────────────────────┴────────────────────┐
                          ▼                                         ▼
              BullMQ Distributed Worker                   Resilient In-Memory
-                 (Redis Connection)                    Tenant Microtask Queue
+             (Redis Concurrency: 5)                     Tenant Microtask Queue
                          │                                         │
                          └────────────────────┬────────────────────┘
                                               ▼
@@ -87,132 +103,74 @@ Shopify Store (Tenant A / B)
                          (Live Telemetry • Trends • Customer Matrix)
 ```
 
+1. **Ingress & Cryptographic Verification:** Express raw body stream listener captures the unparsed byte buffer (`req.rawBody`), verifies `X-Shopify-Hmac-Sha256` using constant-time verification, and checks the bounded in-memory sliding cache (`Set<string>`).
+2. **Asynchronous Execution & Queueing:** Synchronous HTTP 200 acknowledgment returned in **11.78ms (p50)**; payload is dispatched to BullMQ on Redis (or scheduled on the Node.js event-loop Check phase via `setImmediate()` if Redis is offline).
+3. **Data Normalization & Multi-Tenant Storage:** Queue worker resolves tenant context, upserts `Customer` records, creates/updates `Order` rows via `tenantId_externalId`, and atomically increments lifetime spend.
+4. **Presentation & Real-Time Delivery:** Parameterized raw SQL aggregations (`Prisma.sql`) execute in 5–13ms, powering the Next.js 16 App Router dashboard with concurrent, non-blocking hydration.
+
 ---
 
-## ⚡ 4. Key Highlights & Benchmarked Performance
+## 🏛️ 4. Key Architectural Decisions
 
-Empirical metrics measured against local Express 5 + MySQL 8.0 infrastructure using the automated benchmark harness (`scripts/benchmark.ts`):
+| ADR | Decision Title | Status | Context & Problem Trigger | Chosen Solution & Trade-offs |
+| :--- | :--- | :---: | :--- | :--- |
+| **ADR-01** | Decoupled Express Backend vs. Monolithic Next.js | **Accepted** | Next.js serverless body parsers re-serialize JSON, mutating bytes and breaking Shopify HMAC verification. Serverless cold starts and short execution limits risk dropping high-frequency webhooks. | Dedicated Express 5 backend capturing raw TCP bytes (`Buffer.concat`) before body parsing. Trade-off: Two deployable services instead of a single full-stack app. |
+| **ADR-02** | Dual-Engine Queue Architecture (BullMQ + Microtasks) | **Accepted** | Hard dependencies on Redis cause unhandled 500 drops during local setup or Redis container restarts, prompting Shopify to disable store webhooks. | BullMQ + Redis as primary with automatic fallback to Node.js in-memory `setImmediate()` microtasks. Trade-off: In-memory queue is volatile on process crashes. |
+| **ADR-03** | Multi-Tenancy via Shared DB & Composite Unique Keys | **Accepted** | Database-per-tenant introduces severe connection pool exhaustion, schema migration friction, and idle resource waste across thousands of smaller stores. | Shared MySQL database with tenant partitioning (`tenantId_extId`) on all tables, cascade deletes, and composite unique keys. Trade-off: Requires strict `WHERE tenantId` query discipline. |
+| **ADR-04** | Parameterized Raw SQL (`Prisma.$queryRaw`) for Analytics | **Accepted** | Loading thousands of orders into Node.js heap memory to group by date or compute lifetime spend blocks the single-threaded event loop and risks OOM. | Push analytical math down to MySQL engine via parameterized SQL templates taking advantage of B-tree indexes. Trade-off: Manual typing replaces Prisma auto-generated types. |
 
-### Webhook Ingress (HMAC Verification + Async Enqueue)
-| Metric | Measured Value | Operational Rationale |
+---
+
+## 🔬 5. Consistency & Failure Model
+
+| Scenario / Failure Mode | System Behavior & Guarantee | Automatic Recovery Mechanism |
 | :--- | :--- | :--- |
-| **p50 Latency (Median)** | **`11.78 ms`** | Immediate HTTP 200 acknowledgment to Shopify |
-| **p95 Latency** | **`27.41 ms`** | Sustained sub-30ms performance under burst load |
-| **p99 Latency** | **`164.71 ms`** | Upper-bound response turnaround during queue bursts |
-| **Minimum Latency** | **`7.58 ms`** | Fastest recorded signature verification + dispatch |
-| **Throughput (Single-Client)** | **`62.2 req/sec`** | Sequential client ingestion capacity |
-| **Duplicate Webhook Filtering** | **`100% Filtered ✅`** | Zero duplicate orders written to database |
-| **HMAC SHA-256 Verification** | **`100% Validated ✅`** | Bit-for-bit cryptographic verification on raw buffers |
-
-### Analytics & Aggregation Query Latencies
-| Endpoint | Description | p50 (Median) | p95 Latency | p99 Latency |
-| :--- | :--- | :--- | :--- | :--- |
-| `/api/insights/orders` | Time-Series Sales & AOV | **`5.82 ms`** | **`7.48 ms`** | **`9.96 ms`** |
-| `/api/insights/top-customers` | Top Spending Customers | **`5.27 ms`** | **`6.93 ms`** | **`7.46 ms`** |
-| `/api/insights/cohorts` | Monthly Cohort Retention Matrix | **`10.96 ms`** | **`14.11 ms`** | **`15.08 ms`** |
-| `/api/insights/summary` | Overall Merchant KPIs | **`11.00 ms`** | **`21.01 ms`** | **`39.55 ms`** |
-| `/api/insights/rfm` | RFM 7-Segment Scoring | **`12.99 ms`** | **`20.81 ms`** | **`22.93 ms`** |
+| **Primary Database Down** | Ingress accepts webhooks and buffers them safely in Redis; dashboard reads fail cleanly. | BullMQ retries jobs with exponential backoff (3 attempts); auto-resumes writes once MySQL reconnects. |
+| **Redis Broker Offline** | Ingress automatically routes jobs to the in-memory `setImmediate()` microtask queue. | Zero-downtime local failover; automatically reconnects to Redis when the service is restored. |
+| **Duplicate Webhook Delivery** | First tier sliding FIFO cache drops duplicates in <5ms; second tier MySQL `@@unique([tenantId, externalId])` serializes writes. | 100% idempotent upserts guarantee zero duplicate records or double-counted revenue. |
+| **Malformed Payload ("Poison Pill")** | Worker catches unhandled parsing/schema errors; prevents worker crashes. | Retries 3 times with exponential backoff; evicts failed job to Dead Letter Queue (DLQ) and alerts operators. |
 
 ---
 
-## 🚀 5. Tech Stack & Engineering Rationale
+## 🚀 6. Tech Stack
 
-| Layer | Technology | Version | Engineering Rationale |
+| Layer / Concern | Technology | Version | Engineering Rationale |
 | :--- | :--- | :--- | :--- |
-| **Backend Runtime** | Node.js | v20+ | High-throughput asynchronous event loop for I/O-intensive webhook processing |
-| **Language** | TypeScript | v5.x | Compile-time typing across webhook payloads, database schemas, and API contracts |
-| **Backend Framework**| Express.js | v5.2.1 | Lightweight, unopinionated raw socket body interception and REST routing |
-| **Database** | MySQL | 8.0 | ACID compliance, strong consistency, and robust B-tree indexing for financial transactions |
-| **ORM & Migrations** | Prisma ORM | v5.22.0 | Type-safe queries, migration management, and parameterized raw SQL execution |
-| **Distributed Queue**| BullMQ | v6.0.9 | Distributed background job queuing with Redis broker, automatic retries, and rate limits |
-| **In-Memory Broker** | Redis / IORedis | v6.0.0 | High-speed queue broker with automated microtask fallback when unavailable |
-| **Frontend Framework**| Next.js (App Router)| v16.0.7 | Server-side rendering, layout optimization, and unified merchant visualization |
-| **Frontend UI** | React | v19.2.0 | Modern reactive interface state management and telemetry polling |
-| **Styling** | Tailwind CSS / PostCSS | v4.x | Utility-first CSS design system supporting data-heavy merchant tables and charts |
-| **Visualizations** | Recharts | v3.5.1 | Declarative SVG time-series visualizers and customer segment distributions |
-| **Security & Headers**| Helmet.js / CORS | v8.1 / v2.8 | Protection against XSS, clickjacking, and strict localhost CORS boundaries |
-| **Date & Math** | date-fns | v4.1.0 | Pure functional timezone-aware date math for monthly cohort bucket calculations |
-| **External API** | Shopify Admin REST API | 2024-07 | Official OAuth 2.0 flow, webhook subscription webhooks, and catalog syncing |
+| **Backend Runtime** | Node.js | v20+ | High-throughput asynchronous event loop for I/O-bound webhook processing |
+| **Language** | TypeScript | v5.x | Strict compile-time safety across payloads, DB schemas, and API contracts |
+| **Backend REST API** | Express.js | v5.2.1 | Native async route handlers and unopinionated raw TCP body stream capture |
+| **Primary Database** | MySQL | 8.0 | ACID compliance, strong consistency, and B-tree indexing for financial data |
+| **ORM & Migrations** | Prisma ORM | v5.22.0 | Type-safe migrations and parameterized raw SQL (`Prisma.sql`) execution |
+| **Distributed Queue** | BullMQ | v6.0.9 | Distributed background job queue with concurrency limits and retries |
+| **Queue Broker** | Redis / IORedis | v6.0.0 | High-speed broker with automated fallback to microtasks when offline |
+| **Frontend Framework**| Next.js (App Router)| v16.0.7 | Modern client architecture, layout optimization, and telemetry hydration |
+| **Frontend UI & Visuals**| React / Recharts | v19 / v3.5 | Declarative SVG time-series visualizers and customer segment distributions |
+| **Styling & Design** | Tailwind CSS | v4.x | Utility-first CSS design system supporting dense merchant data views |
+| **Testing Framework** | Node Native Test Runner| v20+ | Fast, hermetic unit, security, and benchmark regression suites |
 
 ---
 
-## 🏛️ 6. Key Architectural Decisions
+## ⚙️ 7. Quick Start
 
-| ADR ID | Decision Title | Status | Context & Problem | Chosen Solution & Trade-offs |
-|:---|:---|:---:|:---|:---|
-| **ADR-01** | Decoupled Express.js Ingestion vs. Monolithic Next.js | **Accepted** | Next.js serverless body parsers re-serialize JSON, mutating bytes and breaking Shopify HMAC verification. | Dedicated Express 5 backend capturing raw TCP bytes (`Buffer.concat`) before body parsing. Trade-off: Two deployable services instead of one. |
-| **ADR-02** | Dual-Engine Queue Architecture (BullMQ + Microtask Fallback) | **Accepted** | Requiring Redis complicates local dev; Redis downtime would cause webhook drops and Shopify disabling. | BullMQ + Redis as primary with graceful automatic fallback to Node.js in-memory microtasks. Trade-off: In-memory queue is volatile on process crashes. |
-| **ADR-03** | `setImmediate()` Check Phase vs. `process.nextTick()` | **Accepted** | In fallback mode, background processing must not starve the Node.js event loop or delay HTTP 200 responses. | `setImmediate()` executes in the event loop Check phase after I/O cycles complete. Trade-off: Jobs execute after the current event loop iteration. |
-| **ADR-04** | Multi-Tenancy via Shared DB & Composite Unique Keys | **Accepted** | Multi-database architectures create connection pool exhaustion and high operational overhead. | Shared MySQL database with tenant partitioning (`tenantId_extId`) on all tables and cascade deletes. Trade-off: Requires strict `WHERE tenantId` query discipline. |
-| **ADR-05** | Parameterized Raw SQL (`Prisma.$queryRaw`) Aggregations | **Accepted** | Loading thousands of orders into Node.js heap for in-memory JS aggregation causes latency and memory spikes. | Push analytical math down to MySQL engine via parameterized SQL templates. Trade-off: Manual typing replaces automatic Prisma schema types. |
-| **ADR-06** | Two-Tier Webhook Idempotency (Sliding FIFO + DB Upserts) | **Accepted** | Shopify guarantees at-least-once delivery; duplicate events corrupt revenue and customer spend totals. | First tier in-memory FIFO Set cache (5,000 keys) rejects duplicates in sub-1ms; second tier DB upserts guarantee safety. Trade-off: In-memory cache is node-local. |
-| **ADR-07** | Shopify 64-bit ID Storage as String vs. Native BigInt | **Accepted** | Shopify resource IDs exceed JavaScript's safe integer limit ($2^{53} - 1$), causing truncation in standard JS numbers. | Stored as `VARCHAR(64)` strings across database, runtime, and API serialization. Trade-off: Slightly larger index storage footprint. |
-| **ADR-08** | Static Threshold Scoring for RFM Customer Segmentation | **Accepted** | Percentile quintiles fail on small customer bases and shift dynamically as new customers register. | Fixed business thresholds (e.g., Recency < 30 days = 5, Spend > $500 = 5) ensuring predictable, interpretable customer tiers. Trade-off: Requires threshold tuning per merchant. |
-
----
-
-## 📁 7. Repository & Codebase Structure
-
-```
-shopify-ingest/
-├── docs/                        # Architectural specifications & benchmark reports
-│   ├── ARCHITECTURE.md          # Multi-tenant ingestion & analytics architecture
-│   └── BENCHMARK_RESULTS.md     # Auto-generated empirical benchmark outputs
-├── frontend/                    # Next.js 16 App Router Frontend
-│   ├── src/app/
-│   │   ├── dashboard/           # Merchant analytics dashboard (KPIs, RFM, Cohorts)
-│   │   ├── login/               # Tenant API key authentication screen
-│   │   ├── layout.tsx           # Root application layout & typography
-│   │   └── page.tsx             # Entry redirect & auth router
-│   └── package.json
-├── prisma/
-│   ├── schema.prisma            # Multi-tenant schema (Tenant, Customer, Product, Order)
-│   └── seed.ts                  # Synthetic merchant data generator
-├── screenshots/                 # Application visual documentation & screenshots
-├── scripts/
-│   ├── benchmark.ts             # Automated latency, throughput & idempotency suite
-│   ├── seed-tenant.ts           # Realistic tenant customer and order simulator
-│   └── send_shopify_webhook.ts  # HMAC-signed webhook sender simulator
-├── src/
-│   ├── app.ts                   # Express application setup & raw body middleware
-│   ├── index.ts                 # Server entry point & startup hook
-│   ├── startup.ts               # Startup sync & webhook re-registration handler
-│   ├── middleware/
-│   │   └── tenant.ts            # x-api-key tenant authentication middleware
-│   ├── queue/
-│   │   └── ingestQueue.ts       # Dual-engine BullMQ + in-memory microtask engine
-│   └── routes/
-│       ├── data.ts              # Direct internal data ingestion routes
-│       ├── insights.ts          # RFM, cohort matrix, time-series & KPI analytics
-│       ├── shopify.ts           # OAuth 2.0 lifecycle & HMAC webhook receiver
-│       └── tenants.ts           # Tenant registration & API key management
-├── tests/
-│   └── security.test.ts         # HMAC SHA-256 validation & tenant isolation tests
-├── .env.example                 # Environment configuration template
-├── package.json
-└── tsconfig.json
+```bash
+git clone https://github.com/your-username/shopify-ingest.git && cd shopify-ingest
+cp .env.example .env           # Configure credentials (see below)
+npm install && npm run dev     # Express API: http://localhost:4000
+# In a separate terminal:
+cd frontend && npm install && npm run dev # Dashboard: http://localhost:3000
 ```
 
----
-
-## ⚙️ 8. Installation & Developer Runbook
+<details>
+<summary>📋 <strong>Full installation runbook, environment variables, API reference & test commands</strong></summary>
 
 ### Prerequisites
-* **Node.js** (v20.x or later recommended)
-* **MySQL Server** (8.0 running locally on port 3306)
-* **Redis Server** (*Optional* — platform automatically falls back to in-memory queue if offline)
+* **Runtime:** Node.js v20.x or later
+* **Database:** MySQL 8.0 running locally on port 3306
+* **Cache / Queue:** Redis Server (*Optional* — system automatically falls back to in-memory queue if offline)
 
-### 1. Repository Setup & Dependencies
-```bash
-git clone https://github.com/your-username/shopify-ingest.git
-cd shopify-ingest
-npm install
-```
+### Environment Variables (`.env`)
 
-### 2. Environment Configuration
-Create a `.env` file in the project root:
-
-| Variable | Description | Example / Default |
+| Variable | Description | Example / Default Value |
 | :--- | :--- | :--- |
 | `DATABASE_URL` | MySQL connection string for Prisma | `mysql://root:password@127.0.0.1:3306/shopify-ingest` |
 | `PORT` | Express backend listening port | `4000` |
@@ -224,85 +182,54 @@ Create a `.env` file in the project root:
 | `HOST` | Tunnel URL for live webhook testing | `https://your-tunnel.ngrok-free.dev` |
 | `REDIS_URL` | Redis server connection string (*optional*) | `redis://127.0.0.1:6379` |
 
-### 3. Database Initialization & Seeding
+### Database Initialization & Migrations
 ```bash
 npx prisma migrate dev --name init
 npm run prisma:seed
 ```
 
-### 4. Launch Backend Services
+### Testing & Verification
 ```bash
-npm run dev
+npm test                    # Run cryptographic security & tenant isolation tests
+npm run benchmark           # Run automated latency, throughput & idempotency suite
+npx ts-node scripts/send_shopify_webhook.ts # Dispatch signed synthetic webhook test
 ```
-*Backend API initializes at `http://localhost:4000`.*
 
-### 5. Launch Frontend Merchant Dashboard
-In a separate terminal:
-```bash
-cd frontend
-npm install
-npm run dev
-```
-*Frontend dashboard launches at `http://localhost:3000`.*
+### Core API Reference
 
----
+All `/api/*` endpoints (except `/shopify/*`) require tenant authentication via the `x-api-key` header.
 
-## 📡 9. API Reference
-
-All `/api/*` endpoints (except `/health` and `/shopify/*`) require tenant authentication via the `x-api-key` header.
-
-### Ingestion & Webhook Endpoints
 | Method | Endpoint | Auth | Description |
 | :--- | :--- | :---: | :--- |
 | `POST` | `/shopify/webhook` | HMAC Header | Receives raw Shopify webhooks with cryptographic HMAC SHA-256 verification |
 | `POST` | `/shopify/simulate-webhook` | None | Developer simulation endpoint for testing ingress without live Shopify store |
-| `POST` | `/api/data/customers` | `x-api-key` | Direct ingestion for Customer entities |
-| `POST` | `/api/data/products` | `x-api-key` | Direct ingestion for Product catalog entities |
-| `POST` | `/api/data/orders` | `x-api-key` | Direct ingestion for Order transaction entities |
-
-### Insights & Analytics Endpoints
-| Method | Endpoint | Auth | Description |
-| :--- | :--- | :---: | :--- |
 | `GET` | `/api/insights/summary` | `x-api-key` | Total customers, products, revenue, AOV, and repeat purchase rate |
-| `GET` | `/api/insights/orders?start=YYYY-MM-DD&end=YYYY-MM-DD` | `x-api-key` | Time-series order volume and gross revenue grouped by date |
-| `GET` | `/api/insights/rfm` | `x-api-key` | Full 7-segment RFM customer score and distribution breakdown |
+| `GET` | `/api/insights/orders` | `x-api-key` | Time-series sales velocity and volume grouped by date (`start`, `end`) |
+| `GET` | `/api/insights/rfm` | `x-api-key` | 7-segment RFM customer score and distribution breakdown |
 | `GET` | `/api/insights/cohorts` | `x-api-key` | 6-month monthly customer cohort retention heatmap matrix |
-| `GET` | `/api/insights/top-customers?limit=10` | `x-api-key` | Ranked high-value customers by total historical spend |
-| `GET` | `/api/insights/top-products?limit=10` | `x-api-key` | Product catalog pricing distribution, volume, and stock tiers |
+| `GET` | `/api/insights/top-customers` | `x-api-key` | Ranked high-value customers by total historical spend (`limit`) |
 | `GET` | `/api/insights/queue-status` | `x-api-key` | Real-time queue latency, job counters, and worker telemetry |
 
----
-
-## 🧪 10. Automated Testing & Verification
-
-### Run Automated Security & Integration Suite
-```bash
-npm test
-```
-*Executes unit and integration tests verifying HMAC-SHA256 signature verification, rejection of tampered payloads, and tenant isolation constraints.*
-
-### Run Empirical Latency & Ingress Benchmarks
-```bash
-npm run benchmark
-```
-*Dispatches concurrent webhook batches against the running server, evaluates p50/p95/p99 turnaround latencies, validates deduplication filtering, and updates `docs/BENCHMARK_RESULTS.md`.*
-
-### Simulate Webhook Dispatch
-```bash
-npx ts-node scripts/send_shopify_webhook.ts
-```
-*Generates and transmits cryptographically signed synthetic webhook payloads to test live queue ingestion.*
+</details>
 
 ---
 
-## 🗺️ 11. Roadmap & Engineering Directions
+## 💡 8. What I Learned
 
-- [ ] **Automated CSV & Excel Export:** Allow store owners to export RFM customer segments and monthly cohort retention tables for marketing and campaign analysis.
+- **Architectural Trade-offs (Decoupling vs Serverless):** Decoupling the ingestion gateway from the dashboard taught me that webhooks require raw stream preservation and connection pooling that serverless platforms actively complicate. Handling ingress in Express preserved cryptographic integrity and eliminated cold-start drop risks.
+- **Simplicity vs Over-Engineering (Dual-Engine Fallback):** Designing the dual-engine fallback showed that resilience isn't always about adding complex multi-region clusters. Providing an in-memory microtask fallback dramatically simplified developer onboarding and local testing without compromising production Redis capabilities.
+- **Measurement Over Guessing (Database Push-Down):** Profiling analytics endpoints with an automated benchmark harness exposed that computing cohort retention and RFM scores in JavaScript created significant latency; pushing math down to MySQL B-tree indexes via raw SQL dropped response times from >100ms to **5–13ms**.
+
+---
+
+## 🗺️ 9. Roadmap
+
+- [ ] **Automated CSV & Excel Export:** Allow store owners to export RFM customer segments and monthly cohort retention tables for marketing campaign analysis.
 - [ ] **Email Marketing Webhook Sync:** Automatically sync "At Risk" or "Champion" customer segments to email tools (e.g., Klaviyo or Mailchimp) to trigger automated win-back discount campaigns.
 - [ ] **Custom Holiday & Seasonal Date Filters:** Enable merchants to compare retention cohorts and revenue velocity across custom peak shopping windows (e.g., Black Friday / Cyber Monday).
 
 ---
 
-## 📄 12. License
+## 📄 10. License
 
 Distributed under the [MIT License](LICENSE).
