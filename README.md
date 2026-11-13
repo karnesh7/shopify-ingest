@@ -1,15 +1,21 @@
-# Shopify Multi-Tenant Data Ingestion & Analytics Platform
+# Shopify Multi-Tenant Ingest & Analytics
+
+> High-throughput webhook ingestion, isolated multi-store partitioning, and real-time merchant retention analytics for multi-brand Shopify networks.
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-20.x-green?logo=node.js)](https://nodejs.org/)
 [![Express](https://img.shields.io/badge/Express-5.x-black?logo=express)](https://expressjs.com/)
 [![Next.js](https://img.shields.io/badge/Next.js-16.0-black?logo=next.js)](https://nextjs.org/)
-[![Prisma](https://img.shields.io/badge/Prisma-5.22-2D3748?logo=prisma)](https://www.prisma.io/)
 [![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1?logo=mysql)](https://www.mysql.com/)
+[![Prisma](https://img.shields.io/badge/Prisma-5.22-2D3748?logo=prisma)](https://www.prisma.io/)
 [![BullMQ](https://img.shields.io/badge/BullMQ-Redis-red?logo=redis)](https://bullmq.io/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-purple)](LICENSE)
 
-A high-performance **multi-tenant e-commerce data pipeline and real-time analytics system** built with **Express.js 5, Next.js 16, MySQL 8.0, and BullMQ/Redis**. Solves **Shopify webhook loss, signature tampering, and multi-tenant isolation risks during flash sales** achieving **`11.78 ms` P50 ingress latency**, **`100%` idempotent deduplication**, and **zero-downtime microtask queue failover** — empirically verified across `N = 100` benchmark iterations.
+A decoupled e-commerce data pipeline built with Express 5, MySQL 8.0, and Next.js 16. It captures high-frequency order webhooks with raw TCP stream verification, guarantees zero duplicate records via a dual-engine queue, and computes real-time customer retention cohorts without blocking the Node.js event loop.
+
+```
+⚡ 11.78ms P50 Ingress  ·  🛡️ 100% Duplicate Filter  ·  📊 <13ms Push-Down SQL  ·  🔄 Zero-Downtime Fallback
+```
 
 ---
 
@@ -19,20 +25,28 @@ A high-performance **multi-tenant e-commerce data pipeline and real-time analyti
 
 ## 🌟 1. Key Features & Visual Walkthrough
 
-| 📊 Real-Time Operations Dashboard | 👥 RFM Customer Intelligence |
-| :---: | :---: |
-| <img src="screenshots/01-operations-dashboard.png" width="480" alt="Shopify Real-Time Operations Dashboard" /> | <img src="screenshots/02-rfm-customer-retention.png" width="480" alt="RFM Customer Intelligence Matrix" /> |
-| *Live worker telemetry feeds, gross sales velocity, and AOV tracking* | *7-tier algorithmic RFM customer scoring and churn risk breakdown* |
+<p align="center">
+  <img src="screenshots/01-operations-dashboard.png" width="85%" alt="Shopify Real-Time Operations Dashboard" />
+</p>
 
 <details>
-<summary>📸 <strong>Click to view additional interface workflows (Sales Performance & Monthly Cohort Retention)</strong></summary>
+<summary>📸 <strong>Click to view additional interface workflows (RFM Customer Intelligence & 6-Month Cohort Retention)</strong></summary>
+<br>
 
-| 📈 Sales Performance Trends & 6-Month Cohort Retention Heatmap |
-| :---: |
-| <img src="screenshots/03-sales-performance-trends.png" width="800" alt="Sales Performance Trends & Cohort Retention" /> |
-| *Time-series revenue velocity, volume curves, and triangular monthly cohort retention matrix* |
+<p align="center">
+  <img src="screenshots/02-rfm-customer-retention.png" width="85%" alt="RFM Customer Intelligence Matrix" />
+  <br>
+  <em>7-tier algorithmic RFM customer scoring and churn risk breakdown</em>
+</p>
+
+<p align="center">
+  <img src="screenshots/03-sales-performance-trends.png" width="85%" alt="Sales Performance Trends & Cohort Retention" />
+  <br>
+  <em>Time-series revenue velocity curves and triangular monthly cohort retention matrix</em>
+</p>
 
 </details>
+
 
 * ⚡ **Sub-12ms Ingress Webhook Architecture:** Captures raw TCP streams, validates HMAC SHA-256 signatures, checks sliding FIFO deduplication caches, and returns HTTP 200 in 11.78ms (p50).
 * 🛡️ **Dual-Engine Queue Resilience:** Distributed worker dispatch via BullMQ + Redis, with automatic zero-downtime fallback to an in-memory `setImmediate()` microtask queue if Redis drops.
@@ -214,7 +228,7 @@ All `/api/*` endpoints (except `/shopify/*`) require tenant authentication via t
 
 ---
 
-## 💡 8. What I Learned
+## 💡 8. Engineering Takeaways
 
 - **Architectural Trade-offs (Decoupling vs Serverless):** Decoupling the ingestion gateway from the dashboard taught me that webhooks require raw stream preservation and connection pooling that serverless platforms actively complicate. Handling ingress in Express preserved cryptographic integrity and eliminated cold-start drop risks.
 - **Simplicity vs Over-Engineering (Dual-Engine Fallback):** Designing the dual-engine fallback showed that resilience isn't always about adding complex multi-region clusters. Providing an in-memory microtask fallback dramatically simplified developer onboarding and local testing without compromising production Redis capabilities.
@@ -224,9 +238,9 @@ All `/api/*` endpoints (except `/shopify/*`) require tenant authentication via t
 
 ## 🗺️ 9. Roadmap
 
-- [ ] **Automated CSV & Excel Export:** Allow store owners to export RFM customer segments and monthly cohort retention tables for marketing campaign analysis.
-- [ ] **Email Marketing Webhook Sync:** Automatically sync "At Risk" or "Champion" customer segments to email tools (e.g., Klaviyo or Mailchimp) to trigger automated win-back discount campaigns.
-- [ ] **Custom Holiday & Seasonal Date Filters:** Enable merchants to compare retention cohorts and revenue velocity across custom peak shopping windows (e.g., Black Friday / Cyber Monday).
+- **Automated CSV & Excel Export:** Allow store owners to export RFM customer segments and monthly cohort retention tables for marketing campaign analysis.
+- **Email Marketing Webhook Sync:** Automatically sync "At Risk" or "Champion" customer segments to email tools (e.g., Klaviyo or Mailchimp) to trigger automated win-back discount campaigns.
+- **Custom Holiday & Seasonal Date Filters:** Enable merchants to compare retention cohorts and revenue velocity across custom peak shopping windows (e.g., Black Friday / Cyber Monday).
 
 ---
 
