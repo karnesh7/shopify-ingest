@@ -13,7 +13,7 @@
 
 A decoupled e-commerce data pipeline built with Express 5, MySQL 8.0, and Next.js 16. It captures high-frequency order webhooks with raw TCP stream verification, guarantees zero duplicate records via a dual-engine queue, and computes real-time customer retention cohorts without blocking the Node.js event loop.
 
-```
+```text
 ⚡ 11.78ms P50 Ingress  ·  🛡️ 100% Duplicate Filter  ·  📊 <13ms Push-Down SQL  ·  🔄 Zero-Downtime Fallback
 ```
 
@@ -26,7 +26,8 @@ A decoupled e-commerce data pipeline built with Express 5, MySQL 8.0, and Next.j
 ## 🌟 1. Key Features & Visual Walkthrough
 
 <p align="center">
-  <img src="screenshots/01-operations-dashboard.png" width="85%" alt="Shopify Real-Time Operations Dashboard" />
+  <img src="screenshots/01-operations-dashboard.png" width="85%" alt="Shopify Real-Time Operations Dashboard" /><br/>
+  <em>Shopify real-time operations dashboard featuring live order telemetry, worker status, and multi-tenant financial KPI metrics</em>
 </p>
 
 <details>
@@ -59,7 +60,7 @@ A decoupled e-commerce data pipeline built with Express 5, MySQL 8.0, and Next.j
 
 Empirical metrics measured against local Express 5 + MySQL 8.0 infrastructure using the automated benchmark harness (`scripts/benchmark.ts`):
 
-| Metric | Measured Value | Significance / Operational Rationale |
+| Metric | Measured Value | Operational Guarantee / Significance |
 | :--- | :--- | :--- |
 | **Webhook Ingress Latency (P50)** | **`11.78 ms`** | Immediate HTTP 200 acknowledgment; well within Shopify's 5s SLA |
 | **Webhook Ingress Tail Latency (P95)** | **`27.41 ms`** | Sub-30ms performance envelope under sustained burst load |
@@ -128,10 +129,10 @@ Shopify Store (Tenant A / B)
 
 | ADR | Decision Title | Status | Context & Problem Trigger | Chosen Solution & Trade-offs |
 | :--- | :--- | :---: | :--- | :--- |
-| **ADR-01** | Decoupled Express Backend vs. Monolithic Next.js | **Accepted** | Next.js serverless body parsers re-serialize JSON, mutating bytes and breaking Shopify HMAC verification. Serverless cold starts and short execution limits risk dropping high-frequency webhooks. | Dedicated Express 5 backend capturing raw TCP bytes (`Buffer.concat`) before body parsing. Trade-off: Two deployable services instead of a single full-stack app. |
-| **ADR-02** | Dual-Engine Queue Architecture (BullMQ + Microtasks) | **Accepted** | Hard dependencies on Redis cause unhandled 500 drops during local setup or Redis container restarts, prompting Shopify to disable store webhooks. | BullMQ + Redis as primary with automatic fallback to Node.js in-memory `setImmediate()` microtasks. Trade-off: In-memory queue is volatile on process crashes. |
-| **ADR-03** | Multi-Tenancy via Shared DB & Composite Unique Keys | **Accepted** | Database-per-tenant introduces severe connection pool exhaustion, schema migration friction, and idle resource waste across thousands of smaller stores. | Shared MySQL database with tenant partitioning (`tenantId_extId`) on all tables, cascade deletes, and composite unique keys. Trade-off: Requires strict `WHERE tenantId` query discipline. |
-| **ADR-04** | Parameterized Raw SQL (`Prisma.$queryRaw`) for Analytics | **Accepted** | Loading thousands of orders into Node.js heap memory to group by date or compute lifetime spend blocks the single-threaded event loop and risks OOM. | Push analytical math down to MySQL engine via parameterized SQL templates taking advantage of B-tree indexes. Trade-off: Manual typing replaces Prisma auto-generated types. |
+| **ADR-01** | **Decoupled Express Backend vs. Monolithic Next.js** | **Accepted** | Next.js serverless body parsers re-serialize JSON, mutating bytes and breaking Shopify HMAC verification. Serverless cold starts and short execution limits risk dropping high-frequency webhooks. | Dedicated Express 5 backend capturing raw TCP bytes (`Buffer.concat`) before body parsing. Trade-off: Two deployable services instead of a single full-stack app. |
+| **ADR-02** | **Dual-Engine Queue Architecture (BullMQ + Microtasks)** | **Accepted** | Hard dependencies on Redis cause unhandled 500 drops during local setup or Redis container restarts, prompting Shopify to disable store webhooks. | BullMQ + Redis as primary with automatic fallback to Node.js in-memory `setImmediate()` microtasks. Trade-off: In-memory queue is volatile on process crashes. |
+| **ADR-03** | **Multi-Tenancy via Shared DB & Composite Unique Keys** | **Accepted** | Database-per-tenant introduces severe connection pool exhaustion, schema migration friction, and idle resource waste across thousands of smaller stores. | Shared MySQL database with tenant partitioning (`tenantId_extId`) on all tables, cascade deletes, and composite unique keys. Trade-off: Requires strict `WHERE tenantId` query discipline. |
+| **ADR-04** | **Parameterized Raw SQL (`Prisma.$queryRaw`) for Analytics** | **Accepted** | Loading thousands of orders into Node.js heap memory to group by date or compute lifetime spend blocks the single-threaded event loop and risks OOM. | Push analytical math down to MySQL engine via parameterized SQL templates taking advantage of B-tree indexes. Trade-off: Manual typing replaces Prisma auto-generated types. |
 
 ---
 
@@ -148,7 +149,7 @@ Shopify Store (Tenant A / B)
 
 ## 🚀 6. Tech Stack
 
-| Layer / Concern | Technology | Version | Engineering Rationale |
+| Layer / Concern | Technology | Version | Purpose & Architectural Rationale |
 | :--- | :--- | :--- | :--- |
 | **Backend Runtime** | Node.js | v20+ | High-throughput asynchronous event loop for I/O-bound webhook processing |
 | **Language** | TypeScript | v5.x | Strict compile-time safety across payloads, DB schemas, and API contracts |
@@ -167,12 +168,24 @@ Shopify Store (Tenant A / B)
 ## ⚙️ 7. Quick Start
 
 ```bash
-git clone https://github.com/your-username/shopify-ingest.git && cd shopify-ingest
-cp .env.example .env           # Configure credentials (see below)
-npm install && npm run dev     # Express API: http://localhost:4000
-# In a separate terminal:
-cd frontend && npm install && npm run dev # Dashboard: http://localhost:3000
+# 1. Clone & enter repository
+git clone https://github.com/your-username/shopify-ingest.git
+cd shopify-ingest
+
+# 2. Configure environment credentials
+cp .env.example .env
+
+# 3. Install backend dependencies & start API server (http://localhost:4000)
+npm install
+npm run dev
+
+# 4. In a separate terminal: install frontend dependencies & launch dashboard (http://localhost:3000)
+cd frontend
+npm install
+npm run dev
 ```
+
+* Frontend accessible at: `http://localhost:3000` | Backend API: `http://localhost:4000`
 
 <details>
 <summary>📋 <strong>Full installation runbook, environment variables, API reference & test commands</strong></summary>
@@ -209,7 +222,7 @@ npm run benchmark           # Run automated latency, throughput & idempotency su
 npx ts-node scripts/send_shopify_webhook.ts # Dispatch signed synthetic webhook test
 ```
 
-### Core API Reference
+### API Reference
 
 All `/api/*` endpoints (except `/shopify/*`) require tenant authentication via the `x-api-key` header.
 
