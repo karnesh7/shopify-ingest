@@ -118,7 +118,7 @@ Shopify Store (Tenant A / B)
                          (Live Telemetry • Trends • Customer Matrix)
 ```
 
-1. **Ingress & Cryptographic Verification:** Express raw body stream listener captures the unparsed byte buffer (`req.rawBody`), verifies `X-Shopify-Hmac-Sha256` using constant-time verification, and checks the bounded in-memory sliding cache (`Set<string>`).
+1. **Ingress & Cryptographic Verification:** Express raw body stream listener captures the unparsed byte buffer (`req.rawBody`), verifies `X-Shopify-Hmac-Sha256` signatures (with constant-time verification established as the hardening blueprint), and checks the bounded in-memory sliding cache (`Set<string>`).
 2. **Asynchronous Execution & Queueing:** Synchronous HTTP 200 acknowledgment returned in **11.78ms (p50)**; payload is dispatched to BullMQ on Redis (or scheduled on the Node.js event-loop Check phase via `setImmediate()` if Redis is offline).
 3. **Data Normalization & Multi-Tenant Storage:** Queue worker resolves tenant context, upserts `Customer` records, creates/updates `Order` rows via `tenantId_externalId`, and atomically increments lifetime spend.
 4. **Presentation & Real-Time Delivery:** Parameterized raw SQL aggregations (`Prisma.sql`) execute in 5–13ms, powering the Next.js 16 App Router dashboard with concurrent, non-blocking hydration.
@@ -143,7 +143,7 @@ Shopify Store (Tenant A / B)
 | **Primary Database Down** | Ingress accepts webhooks and buffers them safely in Redis; dashboard reads fail cleanly. | BullMQ retries jobs with exponential backoff (3 attempts); auto-resumes writes once MySQL reconnects. |
 | **Redis Broker Offline** | Ingress automatically routes jobs to the in-memory `setImmediate()` microtask queue. | Zero-downtime local failover; automatically reconnects to Redis when the service is restored. |
 | **Duplicate Webhook Delivery** | First tier sliding FIFO cache drops duplicates in <5ms; second tier MySQL `@@unique([tenantId, externalId])` serializes writes. | 100% idempotent upserts guarantee zero duplicate records or double-counted revenue. |
-| **Malformed Payload ("Poison Pill")** | Worker catches unhandled parsing/schema errors; prevents worker crashes. | Retries 3 times with exponential backoff; evicts failed job to Dead Letter Queue (DLQ) and alerts operators. |
+| **Malformed Payload ("Poison Pill")** | Worker catches unhandled parsing/schema errors; prevents worker crashes. | Retries 3 times with exponential backoff; retains failed jobs in BullMQ's registry for operator inspection. |
 
 ---
 
@@ -205,7 +205,7 @@ npm run dev
 | `JWT_SECRET` | Authentication token signing secret | `your-secure-jwt-secret` |
 | `SHOPIFY_API_KEY` | Shopify Partner App Client ID | `your-shopify-app-key` |
 | `SHOPIFY_API_SECRET`| Shopify Partner App Shared Secret (HMAC) | `your-shopify-app-secret` |
-| `SHOPIFY_SCOPES` | Permissions requested during OAuth | `read_customers,read_orders,read_products` |
+| `SHOPIFY_SCOPES` | Permissions requested during OAuth | `read_customers,read_orders,write_orders,read_products,read_checkouts` |
 | `HOST` | Tunnel URL for live webhook testing | `https://your-tunnel.ngrok-free.dev` |
 | `REDIS_URL` | Redis server connection string (*optional*) | `redis://127.0.0.1:6379` |
 
@@ -219,22 +219,26 @@ npm run prisma:seed
 ```bash
 npm test                    # Run cryptographic security & tenant isolation tests
 npm run benchmark           # Run automated latency, throughput & idempotency suite
-npx ts-node scripts/send_shopify_webhook.ts # Dispatch signed synthetic webhook test
+npx ts-node -r dotenv/config scripts/send_shopify_webhook.ts orders_create # Dispatch signed synthetic webhook test
 ```
 
 ### API Reference
 
-All `/api/*` endpoints (except `/shopify/*`) require tenant authentication via the `x-api-key` header.
+All `/api/*` endpoints (except `/health` and `/shopify/*`) require tenant authentication via the `x-api-key` header.
 
 | Method | Endpoint | Auth | Description |
 | :--- | :--- | :---: | :--- |
+| `GET` | `/health` | None | Service liveness and dependency status |
 | `POST` | `/shopify/webhook` | HMAC Header | Receives raw Shopify webhooks with cryptographic HMAC SHA-256 verification |
 | `POST` | `/shopify/simulate-webhook` | None | Developer simulation endpoint for testing ingress without live Shopify store |
 | `GET` | `/api/insights/summary` | `x-api-key` | Total customers, products, revenue, AOV, and repeat purchase rate |
 | `GET` | `/api/insights/orders` | `x-api-key` | Time-series sales velocity and volume grouped by date (`start`, `end`) |
+| `GET` | `/api/insights/customer-metrics` | `x-api-key` | Customer order distribution (zero, one-time, repeat buyers) |
+| `GET` | `/api/insights/top-products` | `x-api-key` | Catalog price metrics (min, max, avg) and products by price |
+| `GET` | `/api/insights/recent-orders` | `x-api-key` | Chronological stream of recent tenant orders with linked customer |
+| `GET` | `/api/insights/top-customers` | `x-api-key` | Ranked high-value customers by total historical spend (`limit`) |
 | `GET` | `/api/insights/rfm` | `x-api-key` | 7-segment RFM customer score and distribution breakdown |
 | `GET` | `/api/insights/cohorts` | `x-api-key` | 6-month monthly customer cohort retention heatmap matrix |
-| `GET` | `/api/insights/top-customers` | `x-api-key` | Ranked high-value customers by total historical spend (`limit`) |
 | `GET` | `/api/insights/queue-status` | `x-api-key` | Real-time queue latency, job counters, and worker telemetry |
 
 </details>
